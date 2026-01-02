@@ -201,6 +201,27 @@ begin
 end;
 $$ language plpgsql security definer;
 
+-- Tambahan Baru
+-- Hapus view lama jika ada
+DROP VIEW IF EXISTS public.leaderboard;
+
+-- Buat ulang view dengan struktur baru
+CREATE VIEW public.leaderboard AS
+SELECT 
+  u.id as user_id,
+  -- Mengambil nama asli dari metadata auth user
+  u.raw_user_meta_data->>'full_name' as player_name,
+  up.highest_level,
+  up.games_won,
+  up.games_played,
+  CASE 
+    WHEN up.games_played > 0 THEN round((up.games_won::numeric / up.games_played::numeric) * 100, 2)
+    ELSE 0
+  END as win_rate
+FROM 
+  public.user_progress up
+  JOIN auth.users u ON up.user_id = u.id;
+
 
 -- ============================================
 -- 6. INITIAL DATA / SEED

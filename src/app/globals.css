@@ -6,8 +6,8 @@
   :root {
     --color-foreground: 15 23 42;
     --color-background: 248 250 252;
-    --color-primary: 99 102 241;
-    --color-secondary: 236 72 153;
+    --color-primary: 59 130 246;
+    --color-secondary: 37 99 235;
   }
 }
 
@@ -17,7 +17,7 @@
 
 body {
   color: rgb(var(--color-foreground));
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #4bb1f5 0%, #1885c0 100%);
   margin: 0;
   padding: 0;
   min-height: 100vh;
@@ -63,6 +63,11 @@ body {
   }
 }
 
+@keyframes popIn {
+  0% { transform: scale(0.8); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
 .animate-slide-up {
   animation: slideUp 0.3s ease-out;
 }
@@ -70,3 +75,5 @@ body {
 .animate-fade-in {
   animation: fadeIn 0.3s ease-out;
 }
+
+.animate-pop-in { animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }

@@ -12,9 +12,24 @@ export const LevelSelector: React.FC<LevelSelectorProps> = ({
   highestLevel,
   onSelectLevel
 }) => {
+  
+  const handleLevelClick = (level: number) => {
+    onSelectLevel(level);
+    
+    // Auto scroll ke bawah (bagian pilih warna)
+    setTimeout(() => {
+      const colorSection = document.getElementById('color-selector-section');
+      if (colorSection) {
+        colorSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+  };
+
   return (
     <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mb-4">
-      <h3 className="text-xl font-bold text-gray-800 mb-4">📚 Pilih Level</h3>
+      <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+        <span className="text-blue-600">📚</span> Pilih Level
+      </h3>
       <div className="grid grid-cols-2 gap-3 mb-4">
         {AI_LEVELS.map((level) => {
           const isLocked = level.level > highestLevel;
@@ -23,42 +38,41 @@ export const LevelSelector: React.FC<LevelSelectorProps> = ({
           return (
             <button
               key={level.level}
-              onClick={() => !isLocked && onSelectLevel(level.level)}
+              onClick={() => !isLocked && handleLevelClick(level.level)}
               disabled={isLocked}
-              className={`p-4 rounded-xl border-2 transition-all text-left ${
-                isSelected
-                  ? 'border-blue-500 bg-blue-50 shadow-md'
+              className={`
+                p-4 rounded-xl border-2 transition-all text-left relative overflow-hidden group
+                ${isSelected
+                  ? 'border-blue-500 bg-blue-50 shadow-md transform scale-105 z-10'
                   : isLocked
-                  ? 'border-gray-200 bg-gray-50 opacity-60 cursor-not-allowed'
-                  : 'border-gray-200 hover:border-blue-300 hover:shadow-md'
-              }`}
+                  ? 'border-gray-100 bg-gray-50 opacity-60 cursor-not-allowed'
+                  : 'border-gray-100 hover:border-blue-300 hover:shadow-md hover:-translate-y-1 bg-white'
+                }
+              `}
             >
-              <div className="flex justify-between items-start mb-1">
-                <span className="font-bold text-gray-800">Level {level.level}</span>
-                {isLocked && <span className="text-red-500">🔒</span>}
-                {!isLocked && level.level <= highestLevel && level.level !== currentLevel && (
-                  <span className="text-green-500">✓</span>
+              <div className="flex justify-between items-start mb-1 relative z-10">
+                <span className={`font-bold ${isSelected ? 'text-blue-700' : 'text-gray-700'}`}>
+                  Level {level.level}
+                </span>
+                {!isLocked && (
+                   <span className={`transition-opacity ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} text-blue-500`}>
+                     ▼
+                   </span>
                 )}
               </div>
-              <div className="text-sm font-semibold text-gray-700">{level.name}</div>
-              <div className="text-xs text-gray-600 mt-1">{level.description}</div>
+              <div className="text-xs text-gray-500">{level.name}</div>
+              
+              {/* Indikator Warna Level di bawah kartu */}
+              <div className={`absolute bottom-0 left-0 h-1 w-full bg-${level.color}-400 opacity-50`}></div>
+              
+              {isLocked && (
+                <div className="absolute inset-0 flex items-center justify-center bg-gray-100/50">
+                  <span className="text-gray-400 text-xl">🔒</span>
+                </div>
+              )}
             </button>
           );
         })}
-      </div>
-      
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-100">
-        <div className="flex items-start gap-3">
-          <span className="text-2xl">🎯</span>
-          <div>
-            <div className="font-bold text-gray-800 mb-1">
-              {AI_LEVELS[currentLevel - 1].name}
-            </div>
-            <div className="text-sm text-gray-600">
-              {AI_LEVELS[currentLevel - 1].description}
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );
