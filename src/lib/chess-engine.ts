@@ -2,7 +2,7 @@ import { Chess } from 'chess.js';
 import { PIECE_VALUES } from '@/constants/game-config';
 
 export class ChessEngine {
-  private evaluateBoard(chess: Chess): number {
+  evaluateBoard(chess: Chess): number {
     let score = 0;
     const board = chess.board();
     
@@ -18,13 +18,7 @@ export class ChessEngine {
     return score;
   }
 
-  private minimax(
-    chess: Chess, 
-    depth: number, 
-    alpha: number, 
-    beta: number, 
-    isMaximizing: boolean
-  ): number {
+  minimax(chess: Chess, depth: number, alpha: number, beta: number, isMaximizing: boolean): number {
     if (depth === 0 || chess.isGameOver()) {
       return this.evaluateBoard(chess);
     }
@@ -56,7 +50,7 @@ export class ChessEngine {
     }
   }
 
-  public getBestMove(chess: Chess, depth: number, isWhite: boolean) {
+  getBestMove(chess: Chess, depth: number, isWhite: boolean) {
     const moves = chess.moves({ verbose: true });
     if (moves.length === 0) return null;
 

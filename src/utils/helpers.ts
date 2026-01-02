@@ -1,9 +1,11 @@
-import { PIECE_SYMBOLS } from '@/constants/game-config';
-
 export const getPieceSymbol = (piece: any): string => {
   if (!piece) return '';
+  const symbols: any = {
+    p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚',
+    P: '♙', R: '♖', N: '♘', B: '♗', Q: '♕', K: '♔'
+  };
   const key = piece.color === 'w' ? piece.type.toUpperCase() : piece.type;
-  return PIECE_SYMBOLS[key as keyof typeof PIECE_SYMBOLS] || '';
+  return symbols[key] || '';
 };
 
 export const getSquareNotation = (row: number, col: number): string => {
@@ -12,8 +14,4 @@ export const getSquareNotation = (row: number, col: number): string => {
 
 export const isLightSquare = (row: number, col: number): boolean => {
   return (row + col) % 2 === 0;
-};
-
-export const getRandomColor = (): 'white' | 'black' => {
-  return Math.random() > 0.5 ? 'white' : 'black';
 };
