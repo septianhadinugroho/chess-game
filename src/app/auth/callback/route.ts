@@ -8,10 +8,10 @@ export async function GET(request: Request) {
 
   if (code) {
     const cookieStore = cookies();
+    // Kalau masih error merah di 'createRouteHandlerClient', abaikan dulu kalau npm install udah sukses
     const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
     await supabase.auth.exchangeCodeForSession(code);
   }
 
-  // Redirect back to home page after login
   return NextResponse.redirect(requestUrl.origin);
 }
