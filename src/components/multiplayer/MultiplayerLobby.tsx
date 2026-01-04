@@ -145,39 +145,49 @@ export default function MultiplayerLobby({
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const joinRoom = async (code: string) => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('game_rooms')
-        .select('*')
-        .eq('room_code', code.toUpperCase())
-        .eq('status', 'waiting')
-        .single();
+  // Di dalam MultiplayerLobby.tsx
 
-      if (error || !data) {
-        alert(language === 'id' ? 'Room tidak ditemukan!' : 'Room not found!');
-        return;
-      }
+const joinRoom = async (code: string) => {
+  // Gak perlu cek null lagi, karena useAuth di atas MENJAMIN user pasti ada
+  if (!userId) return; 
 
-      await supabase
-        .from('game_rooms')
-        .update({ 
-          guest_user_id: userId,
-          status: 'playing'
-        })
-        .eq('id', data.id);
+  setLoading(true);
+  try {
+    const { data, error } = await supabase
+      .from('game_rooms')
+      .select('*')
+      .eq('room_code', code.toUpperCase())
+      .eq('status', 'waiting')
+      .single();
 
-      onJoinRoom(data.id, code.toUpperCase());
-    } catch (error) {
-      console.error('Error joining room:', error);
-      alert('Failed to join room. Please try again.');
-    } finally {
-      setLoading(false);
+    if (error || !data) {
+      alert(language === 'id' ? 'Room tidak ditemukan!' : 'Room not found!');
+      return;
     }
-  };
+
+    if (data.host_user_id === userId) {
+      alert('Gabisa join room sendiri woy!');
+      return;
+    }
+
+    // UPDATE DB dengan ID user yang ASLI
+    await supabase
+      .from('game_rooms')
+      .update({ 
+        guest_user_id: userId, // Ini ID UUID (user_xxxxx) yang konsisten
+        status: 'playing'
+      })
+      .eq('id', data.id);
+
+    onJoinRoom(data.id, code.toUpperCase());
+  } catch (error) {
+    console.error('Error joining room:', error);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const copyToClipboard = (text: string, isLink = false) => {
     navigator.clipboard.writeText(text);
