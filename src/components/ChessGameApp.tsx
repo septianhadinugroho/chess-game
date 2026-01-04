@@ -24,7 +24,7 @@ import { Toast } from '@/components/ui/Toast';
 
 // Icons
 import { 
-  IoLogOut, IoArrowBack, IoRefresh, IoArrowUndo, IoSave, 
+  IoLogOut, IoArrowBack, IoRefresh, IoArrowUndo, IoSave, IoTime, 
   IoLogoInstagram, IoLanguage, IoRocket, IoShieldCheckmark, IoList 
 } from 'react-icons/io5';
 import { GiChessKnight, GiRobotGolem } from 'react-icons/gi';
@@ -136,49 +136,50 @@ export default function ChessGameApp() {
     return () => clearInterval(interval);
   }, [timerActive, game, gameStatus, gameMode]);
 
-  // 1. Dengerin Perubahan Room & Moves dari Database
+  // --- MULTIPLAYER LOGIC (Sync, Timer, Pause) ---
   useEffect(() => {
     if (!currentRoomId || gameMode !== 'multiplayer') return;
 
-    // A. Ambil Data Room Awal (Warna & Posisi Bidak)
     const fetchRoomData = async () => {
-      const { data: room } = await supabase
-        .from('game_rooms')
-        .select('*')
-        .eq('id', currentRoomId)
-        .single();
-      
+      const { data: room } = await supabase.from('game_rooms').select('*').eq('id', currentRoomId).single();
       if (room) {
-        // Load posisi bidak dari DB
         const newGame = new Chess(room.current_fen);
         setGame(newGame);
         setBoard(newGame.board());
-        setMoveHistory(newGame.history()); // Load history kalau rejoin
+        setMoveHistory(newGame.history());
+        // Sync Timer
+        setWhiteTime(room.white_time_left);
+        setBlackTime(room.black_time_left);
+        setTimerActive(room.status === 'playing' && !room.is_paused);
         
-        // TENTUIN WARNA PLAYER (Ini fix biar gak null/salah warna!)
-        // Logic: Kalo gw Host -> Pake warna Host. Kalo bukan -> Warna lawannya.
-        const myColor = userId === room.host_user_id 
-          ? room.host_color 
-          : (room.host_color === 'white' ? 'black' : 'white');
-        
+        // Warna pemain
+        const myColor = userId === room.host_user_id ? room.host_color : (room.host_color === 'white' ? 'black' : 'white');
         setPlayerColor(myColor);
-        setShowGame(true); // Tampilin board
+        setShowGame(true);
       }
     };
 
     fetchRoomData();
 
-    // B. Subscribe Realtime (Biar bidak gerak sendiri pas lawan jalan)
+    // Channel Realtime: Moves + Status Change (Pause/Resume/End)
     const channel = supabase
-      .channel(`room_${currentRoomId}`)
-      .on('postgres_changes', { 
-        event: 'INSERT', 
-        schema: 'public', 
-        table: 'game_moves', 
-        filter: `room_id=eq.${currentRoomId}` 
-      }, (payload) => {
+      .channel(`room_game_${currentRoomId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_rooms', filter: `id=eq.${currentRoomId}` }, (payload) => {
+        const newRoom = payload.new as any;
+        if (newRoom) {
+          // Sync Pause/Timer dari DB
+          setTimerActive(newRoom.status === 'playing' && !newRoom.is_paused);
+          setWhiteTime(newRoom.white_time_left); // Sync waktu biar gak ngaco beda browser
+          setBlackTime(newRoom.black_time_left);
+          
+          // Kalau status berubah jadi finished
+          if (newRoom.status === 'finished') {
+             // Handle game over logic here if needed
+          }
+        }
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'game_moves', filter: `room_id=eq.${currentRoomId}` }, (payload) => {
         const moveData = payload.new;
-        // Cuma update kalau move ini DARI LAWAN (bukan move kita sendiri)
         if (moveData.player_id !== userId) {
           const newGame = new Chess(moveData.fen);
           setGame(newGame);
@@ -186,7 +187,7 @@ export default function ChessGameApp() {
           setMoveHistory(newGame.history());
           setLastMove({ from: moveData.from_square, to: moveData.to_square });
           playSound('move');
-          checkGameStatus(newGame); // Cek skakmat/remis
+          checkGameStatus(newGame);
         }
       })
       .subscribe();
@@ -452,6 +453,20 @@ export default function ChessGameApp() {
     } catch (e) { 
       console.error(e);
     }
+  };
+
+  const togglePause = async () => {
+    if (!currentRoomId) return;
+    // Cek status sekarang pause atau gak (bisa pake state local timerActive sebagai referensi kebalikan)
+    const isPaused = !timerActive; // Kalau timer jalan, berarti mau di-pause.
+    
+    // Update DB
+    await supabase.from('game_rooms').update({
+      is_paused: isPaused,
+      // Simpan waktu terakhir biar pas resume gak loncat
+      white_time_left: whiteTime,
+      black_time_left: blackTime
+    }).eq('id', currentRoomId);
   };
 
   const makeAIMove = (currentGame: Chess) => {
@@ -843,72 +858,97 @@ export default function ChessGameApp() {
     );
   }
 
-  // === TAMBAHAN BARU: Multiplayer Screen ===
+  // === TAMPILAN MULTIPLAYER LENGKAP ===
   else if (showGame && gameMode === 'multiplayer') {
+    const isOpponentTurn = (game.turn() === 'w' && playerColor === 'black') || (game.turn() === 'b' && playerColor === 'white');
+
+    // Helper display timer
+    const formatTime = (t: number) => {
+      const min = Math.floor(t / 60);
+      const sec = t % 60;
+      return `${min}:${sec < 10 ? '0' : ''}${sec}`;
+    };
+
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-emerald-50 flex flex-col">
-        {/* Reuse komponen yang udah ada */}
+      <div className="min-h-screen bg-gray-100 flex flex-col">
         <Toast message={toast.message} show={toast.show} type={toast.type} onHide={() => setToast({ ...toast, show: false })} />
         <GameResultModal status={gameStatus} onReset={() => {}} onHome={() => { setShowGame(false); setGameMode(null); }} language={language} />
 
-        {/* Header Multiplayer */}
-        <div className="bg-white border-b border-gray-200 shadow-sm px-4 py-3 flex justify-between items-center sticky top-0 z-30">
-          <button 
-            onClick={() => { setShowGame(false); setGameMode(null); }} 
-            className="p-2 rounded-xl hover:bg-gray-100 text-gray-700"
-            aria-label={language === 'id' ? 'Kembali ke Menu' : 'Back to Menu'}
-          >
+        {/* HEADER */}
+        <div className="bg-white border-b shadow-sm px-4 py-3 flex justify-between items-center sticky top-0 z-30">
+          <button onClick={() => { setShowGame(false); setGameMode(null); }} className="p-2 hover:bg-gray-100 rounded-xl" aria-label="Back">
             <IoArrowBack size={24} />
           </button>
-          <div className="font-bold text-gray-800 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-            Online Match
+          
+          <div className="flex flex-col items-center">
+             <div className="font-bold text-gray-800 text-sm">ONLINE MATCH</div>
+             <div className="flex items-center gap-2 text-xs font-mono bg-gray-100 px-2 rounded">
+                Room: {currentRoomId?.substring(0,4)}...
+             </div>
           </div>
-          <div className="w-8"></div> {/* Spacer */}
+
+          <button onClick={togglePause} className={`p-2 rounded-xl border ${!timerActive ? 'bg-yellow-100 border-yellow-300 text-yellow-700' : 'bg-gray-100 text-gray-600'}`}>
+            {timerActive ? <span className="font-bold text-xs">PAUSE</span> : <span className="font-bold text-xs">RESUME</span>}
+          </button>
         </div>
 
-        {/* Area Board */}
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col max-w-2xl mx-auto w-full justify-center">
+        {/* GAME AREA */}
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col max-w-lg mx-auto w-full justify-center">
           
-          {/* Info Lawan */}
-          <div className="flex justify-between items-center mb-4 px-2">
+          {/* OPPONENT AREA (Atas) */}
+          <div className="flex justify-between items-end mb-4 px-2">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 font-bold border-2 border-gray-300">
+              <div className="w-10 h-10 rounded-xl bg-gray-800 text-white flex items-center justify-center font-bold shadow-md">
                 OP
               </div>
               <div>
-                <div className="font-bold text-gray-800">Opponent</div>
-                <div className="text-xs text-gray-500">
-                   {/* Indikator Giliran Lawan */}
-                   {(game.turn() === 'w' && playerColor === 'black') || (game.turn() === 'b' && playerColor === 'white') 
-                     ? <span className="text-blue-600 font-bold animate-pulse">Thinking...</span>
-                     : "Waiting..."}
+                <div className="font-bold text-gray-800 text-sm">Opponent</div>
+                <div className="text-xs text-gray-500 font-medium">
+                  {isOpponentTurn ? <span className="text-green-600 animate-pulse">Thinking...</span> : 'Waiting'}
                 </div>
               </div>
             </div>
+            {/* TIMER OPPONENT */}
+            <div className={`px-4 py-2 rounded-lg font-mono text-xl font-bold shadow-sm transition-all border-2 ${isOpponentTurn ? 'bg-white border-green-500 text-green-600 scale-105' : 'bg-gray-200 border-transparent text-gray-500'}`}>
+               {playerColor === 'white' ? formatTime(blackTime) : formatTime(whiteTime)}
+            </div>
           </div>
 
-          {/* CHESS BOARD */}
-          <EnhancedChessBoard
-            board={board}
-            orientation={playerColor || 'white'} // Pastikan orientasi sesuai warna kita!
-            selectedSquare={selectedSquare}
-            validMoves={validMoves}
-            onSquareClick={handleSquareClick}
-            lastMove={lastMove}
-            showTimer={false}
-          />
+          {/* PAUSE OVERLAY */}
+          <div className="relative">
+             {!timerActive && !gameStatus && (
+               <div className="absolute inset-0 z-20 bg-black/20 backdrop-blur-[2px] flex items-center justify-center rounded-lg">
+                 <div className="bg-white px-6 py-3 rounded-xl shadow-xl font-bold text-gray-700 flex items-center gap-2">
+                    <IoTime className="text-yellow-500 animate-spin-slow"/> GAME PAUSED
+                 </div>
+               </div>
+             )}
+             
+             <EnhancedChessBoard
+              board={board}
+              orientation={playerColor || 'white'}
+              selectedSquare={selectedSquare}
+              validMoves={validMoves}
+              onSquareClick={handleSquareClick}
+              lastMove={lastMove}
+              showTimer={false} 
+            />
+          </div>
 
-          {/* Info Kita */}
-          <div className="mt-4 px-2">
+          {/* PLAYER AREA (Bawah) */}
+          <div className="flex justify-between items-start mt-4 px-2">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold border-2 border-blue-200">
+              <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-md">
                 ME
               </div>
               <div>
-                <div className="font-bold text-gray-800">{userName}</div>
-                <div className="text-xs font-bold text-blue-600 capitalize">{playerColor} Pieces</div>
+                <div className="font-bold text-gray-800 text-sm">{userName}</div>
+                <div className="text-xs font-bold text-blue-600 capitalize">{playerColor}</div>
               </div>
+            </div>
+            {/* TIMER SAYA */}
+            <div className={`px-4 py-2 rounded-lg font-mono text-xl font-bold shadow-sm transition-all border-2 ${!isOpponentTurn ? 'bg-white border-blue-500 text-blue-600 scale-105' : 'bg-gray-200 border-transparent text-gray-500'}`}>
+               {playerColor === 'white' ? formatTime(whiteTime) : formatTime(blackTime)}
             </div>
           </div>
 

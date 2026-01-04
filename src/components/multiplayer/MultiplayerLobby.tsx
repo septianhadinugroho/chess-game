@@ -4,6 +4,7 @@ import {
   IoAdd, IoEnter, IoShareSocial, IoCopy, IoClose, 
   IoCheckmark, IoPeople, IoTime, IoRefresh, IoTrash, IoLink 
 } from 'react-icons/io5';
+import { FaChessKing, FaQuestion } from 'react-icons/fa'; 
 import { translations, Language } from '@/lib/language';
 
 interface Room {
@@ -13,6 +14,7 @@ interface Room {
   status: string;
   time_control: number;
   created_at: string;
+  host_color: string;
 }
 
 interface MultiplayerLobbyProps {
@@ -29,17 +31,25 @@ export default function MultiplayerLobby({
   onBack 
 }: MultiplayerLobbyProps) {
   const t = translations[language];
+  
+  // Tab State
   const [activeTab, setActiveTab] = useState<'create' | 'join'>('create');
-  const [timeControl, setTimeControl] = useState(300); // 5 minutes default
-  const [customTime, setCustomTime] = useState('');
+  
+  // Create Room State
+  const [timeControl, setTimeControl] = useState(600); // Default 10 menit
+  const [selectedColor, setSelectedColor] = useState<'white' | 'black' | 'random'>('random');
+  const [loading, setLoading] = useState(false);
+  
+  // Join Room State
   const [roomCode, setRoomCode] = useState('');
   const [availableRooms, setAvailableRooms] = useState<Room[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [createdRoomId, setCreatedRoomId] = useState('');
-  const [createdRoomCode, setCreatedRoomCode] = useState('');
+  
+  // Waiting Room State (Setelah Create)
+  const [createdRoom, setCreatedRoom] = useState<Room | null>(null);
   const [copied, setCopied] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
+  // Time Presets
   const timePresets = [
     { value: 180, label: '3 min' },
     { value: 300, label: '5 min' },
@@ -47,11 +57,38 @@ export default function MultiplayerLobby({
     { value: 900, label: '15 min' },
   ];
 
+  // Fetch rooms saat pindah ke tab Join
   useEffect(() => {
     if (activeTab === 'join') {
       fetchAvailableRooms();
     }
   }, [activeTab]);
+
+  // Realtime Listener untuk Host di Waiting Room
+  useEffect(() => {
+    if (!createdRoom) return;
+
+    // Subscribe ke perubahan di room ini
+    const channel = supabase
+      .channel(`room_waiting_${createdRoom.id}`)
+      .on('postgres_changes', { 
+        event: 'UPDATE', 
+        schema: 'public', 
+        table: 'game_rooms', 
+        filter: `id=eq.${createdRoom.id}` 
+      }, (payload) => {
+        const updatedRoom = payload.new as Room;
+        
+        // Jika status berubah jadi 'playing', berarti Guest sudah join!
+        if (updatedRoom.status === 'playing') {
+          // Masuk ke game
+          onJoinRoom(updatedRoom.id, updatedRoom.room_code);
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [createdRoom, onJoinRoom]);
 
   const fetchAvailableRooms = async () => {
     try {
@@ -59,6 +96,7 @@ export default function MultiplayerLobby({
         .from('game_rooms')
         .select('*')
         .eq('status', 'waiting')
+        .neq('host_user_id', userId) // Jangan tampilkan room sendiri
         .order('created_at', { ascending: false })
         .limit(10);
 
@@ -72,20 +110,24 @@ export default function MultiplayerLobby({
   const createRoom = async () => {
     setLoading(true);
     try {
-      const finalTime = customTime ? parseInt(customTime) * 60 : timeControl;
       const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-      const hostColor = Math.random() > 0.5 ? 'white' : 'black';
+      
+      // Tentukan warna host sekarang biar jelas masuk DB
+      const finalHostColor = selectedColor === 'random' 
+        ? (Math.random() > 0.5 ? 'white' : 'black') 
+        : selectedColor;
       
       const { data, error } = await supabase
         .from('game_rooms')
         .insert([{
           room_code: code,
           host_user_id: userId,
-          host_color: hostColor,
-          time_control: finalTime,
-          white_time_left: finalTime,
-          black_time_left: finalTime,
+          host_color: finalHostColor,
+          time_control: timeControl,
+          white_time_left: timeControl,
+          black_time_left: timeControl,
           status: 'waiting',
+          is_paused: false, // Kolom baru untuk fitur pause
           current_fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
         }])
         .select()
@@ -93,7 +135,9 @@ export default function MultiplayerLobby({
 
       if (error) throw error;
 
-      onJoinRoom(data.id, code);
+      // JANGAN LANGSUNG JOIN GAME! Masuk ke Waiting State dulu.
+      setCreatedRoom(data);
+
     } catch (error) {
       console.error('Error creating room:', error);
       alert('Failed to create room.');
@@ -103,55 +147,41 @@ export default function MultiplayerLobby({
   };
 
   const deleteRoom = async () => {
-    if (!createdRoomId) return;
+    if (!createdRoom) return;
     
+    // Konfirmasi sebelum hapus
     const confirmDelete = confirm(
       language === 'id' 
-        ? 'Yakin ingin menghapus room ini?' 
-        : 'Are you sure you want to delete this room?'
+        ? 'Batalkan dan hapus room ini?' 
+        : 'Cancel and delete this room?'
     );
     
     if (!confirmDelete) return;
     
     setLoading(true);
     try {
-      // Delete dari database
+      // Hapus dari database
       const { error } = await supabase
         .from('game_rooms')
         .delete()
-        .eq('id', createdRoomId)
-        .eq('host_user_id', userId); // Security: pastikan hanya host yang bisa delete
+        .eq('id', createdRoom.id)
+        .eq('host_user_id', userId); // Security check
       
       if (error) throw error;
       
-      // Reset state
-      setCreatedRoomId('');
-      setCreatedRoomCode('');
+      // Reset state, kembali ke menu create
+      setCreatedRoom(null);
       
-      // Show success message
-      alert(
-        language === 'id' 
-          ? 'Room berhasil dihapus!' 
-          : 'Room deleted successfully!'
-      );
-      
-      // Kembali ke menu create
-      setActiveTab('create');
     } catch (error) {
       console.error('Error deleting room:', error);
-      alert(
-        language === 'id' 
-          ? 'Gagal menghapus room. Silakan coba lagi.' 
-          : 'Failed to delete room. Please try again.'
-      );
+      alert('Failed to delete room.');
     } finally {
       setLoading(false);
     }
   }
 
-  // Di bagian function joinRoom
   const joinRoom = async (code: string) => {
-    if (!userId) return; // Udah dijamin ada sama useAuth
+    if (!userId) return;
     setLoading(true);
 
     try {
@@ -160,34 +190,32 @@ export default function MultiplayerLobby({
         .from('game_rooms')
         .select('*')
         .eq('room_code', code.toUpperCase())
-        .eq('status', 'waiting') // Pastikan status masih waiting
+        .eq('status', 'waiting')
         .single();
 
       if (fetchError || !roomData) {
-        alert(language === 'id' ? 'Room tidak ditemukan atau sudah penuh!' : 'Room not found or full!');
-        setLoading(false);
+        alert(language === 'id' ? 'Room tidak ditemukan atau penuh!' : 'Room not found or full!');
         return;
       }
 
-      // 2. Cek Host
+      // 2. Cek Host (Gak boleh join room sendiri di tab Join)
       if (roomData.host_user_id === userId) {
-        alert('Gabisa join room sendiri!');
-        setLoading(false);
+        alert(language === 'id' ? 'Anda host room ini (Tunggu di lobi)' : 'You are the host (Wait in lobby)');
         return;
       }
 
-      // 3. UPDATE Database (Sekarang pasti berhasil karena Constraint udah dicopot)
+      // 3. Update Database: Masukkan Guest & Ubah Status jadi Playing
       const { error: updateError } = await supabase
         .from('game_rooms')
         .update({ 
-          guest_user_id: userId, // ID Text (misal: guest_8a2b1c) masuk lancar
-          status: 'playing'      // Ubah status jadi playing
+          guest_user_id: userId,
+          status: 'playing'
         })
         .eq('id', roomData.id);
 
       if (updateError) throw updateError;
 
-      // 4. Masuk ke Game
+      // 4. Guest Langsung Masuk Game
       onJoinRoom(roomData.id, code.toUpperCase());
 
     } catch (error) {
@@ -210,11 +238,13 @@ export default function MultiplayerLobby({
   };
 
   const shareRoom = () => {
-    const url = `${window.location.origin}?room=${createdRoomCode}`;
+    if (!createdRoom) return;
+    const url = `${window.location.origin}?room=${createdRoom.room_code}`;
+    
     if (navigator.share) {
       navigator.share({
         title: 'Chess Master - Join my game!',
-        text: `Join my chess game with code: ${createdRoomCode}`,
+        text: `Join my chess game with code: ${createdRoom.room_code}`,
         url: url
       });
     } else {
@@ -222,115 +252,106 @@ export default function MultiplayerLobby({
     }
   };
 
-  if (createdRoomCode) {
-    const shareUrl = `${window.location.origin}?room=${createdRoomCode}`;
+  // --- UI: WAITING ROOM (Saat Host sudah create room) ---
+  if (createdRoom) {
+    const shareUrl = `${window.location.origin}?room=${createdRoom.room_code}`;
     
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-emerald-50 p-4 flex items-center justify-center">
         <div className="max-w-md w-full">
-          <div className="card text-center">
-            <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-green-500 rounded-2xl flex items-center justify-center mx-auto mb-4 animate-bounce-slow shadow-xl">
-              <IoCheckmark className="text-4xl text-white" />
+          <div className="card text-center animate-slide-up">
+            
+            {/* Animasi Loading */}
+            <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse relative">
+              <IoTime className="text-4xl text-blue-500" />
+              <div className="absolute inset-0 border-4 border-blue-200 rounded-full animate-ping opacity-20"></div>
             </div>
 
             <h2 className="text-2xl font-bold text-gray-800 mb-2">
-              {language === 'id' ? 'Room Siap!' : 'Room Ready!'}
+              {language === 'id' ? 'Menunggu Lawan...' : 'Waiting for Opponent...'}
             </h2>
-            <p className="text-gray-600 mb-4 text-sm">
+            <p className="text-gray-600 mb-6 text-sm">
               {language === 'id' 
-                ? 'Bagikan kode atau link ke temanmu' 
-                : 'Share code or link to your friend'}
+                ? 'Bagikan kode ini ke temanmu untuk mulai main' 
+                : 'Share this code with your friend to start'}
             </p>
 
-            <div className="bg-gradient-to-r from-blue-100 to-cyan-100 rounded-2xl p-4 mb-4">
-              <div className="text-xs text-gray-600 mb-1 font-medium">
+            {/* Room Code Display */}
+            <div className="bg-gray-100 p-5 rounded-2xl mb-6 relative border border-gray-200">
+              <p className="text-xs text-gray-500 mb-1 font-bold uppercase tracking-widest">
                 {language === 'id' ? 'Kode Room' : 'Room Code'}
-              </div>
-              <div className="text-4xl font-black text-blue-600 tracking-widest mb-3 font-mono">
-                {createdRoomCode}
-              </div>
-              
-              <div className="grid grid-cols-3 gap-2 mb-3">
-                <button
-                  onClick={() => copyToClipboard(createdRoomCode)}
-                  className="bg-white border-2 border-blue-200 text-blue-600 py-2 rounded-xl font-bold hover:shadow-md transition-all flex items-center justify-center gap-1 text-xs"
-                >
-                  {copied ? <IoCheckmark size={16} /> : <IoCopy size={16} />}
-                  <span className="hidden sm:inline">{copied ? 'OK!' : 'Code'}</span>
-                </button>
-                
-                <button
-                  onClick={() => copyToClipboard(shareUrl, true)}
-                  className="bg-white border-2 border-cyan-200 text-cyan-600 py-2 rounded-xl font-bold hover:shadow-md transition-all flex items-center justify-center gap-1 text-xs"
-                >
-                  {copiedLink ? <IoCheckmark size={16} /> : <IoLink size={16} />}
-                  <span className="hidden sm:inline">{copiedLink ? 'OK!' : 'Link'}</span>
-                </button>
-                
-                <button
-                  onClick={shareRoom}
-                  className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white py-2 rounded-xl font-bold hover:shadow-lg transition-all flex items-center justify-center gap-1 text-xs"
-                >
-                  <IoShareSocial size={16} />
-                  <span className="hidden sm:inline">Share</span>
-                </button>
-              </div>
-
-              <p className="text-xs text-gray-500">
-                {language === 'id' ? 'Link:' : 'Link:'} <span className="font-mono text-blue-600 break-all">{shareUrl}</span>
               </p>
+              <div className="text-5xl font-black text-blue-600 tracking-widest font-mono">
+                {createdRoom.room_code}
+              </div>
+              
+              <button
+                onClick={() => copyToClipboard(createdRoom.room_code)}
+                className="absolute top-4 right-4 p-2 text-gray-400 hover:text-blue-600 hover:bg-white rounded-lg transition-all"
+                title="Copy Code"
+              >
+                {copied ? <IoCheckmark size={20} /> : <IoCopy size={20} />}
+              </button>
             </div>
 
-            <div className="p-3 bg-yellow-50 rounded-xl border border-yellow-200 mb-4">
-              <div className="flex items-start gap-2">
-                <IoTime className="text-yellow-600 text-lg shrink-0 mt-0.5" />
-                <div className="text-left">
-                  <div className="font-bold text-xs text-gray-800 mb-0.5">
-                    {language === 'id' ? 'Menunggu Pemain...' : 'Waiting for Player...'}
-                  </div>
-                  <div className="text-[10px] text-gray-600">
-                    {language === 'id' 
-                      ? 'Game akan dimulai saat pemain lain join' 
-                      : 'Game will start when another player joins'}
-                  </div>
-                </div>
+            {/* Room Info Details */}
+            <div className="flex justify-center gap-3 mb-8">
+              <div className="flex items-center gap-2 bg-blue-50 px-4 py-2 rounded-xl border border-blue-100 text-sm text-blue-800">
+                {createdRoom.host_color === 'white' 
+                  ? <FaChessKing className="text-gray-400 stroke-1" /> // Putih
+                  : <FaChessKing className="text-black" /> // Hitam
+                }
+                <span className="font-bold">
+                  {language === 'id' 
+                    ? (createdRoom.host_color === 'white' ? 'Putih' : 'Hitam') 
+                    : (createdRoom.host_color === 'white' ? 'White' : 'Black')}
+                </span>
+              </div>
+              
+              <div className="flex items-center gap-2 bg-emerald-50 px-4 py-2 rounded-xl border border-emerald-100 text-sm text-emerald-800">
+                <IoTime />
+                <span className="font-bold">{createdRoom.time_control / 60} min</span>
               </div>
             </div>
 
-            <div className="flex gap-2">
+            {/* Action Buttons */}
+            <div className="grid grid-cols-2 gap-3 mb-4">
               <button
-                onClick={deleteRoom}
-                disabled={loading}
-                className="flex-1 bg-red-100 text-red-600 py-3 rounded-xl font-bold hover:bg-red-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                onClick={() => copyToClipboard(shareUrl, true)}
+                className="flex items-center justify-center gap-2 py-3 bg-white border-2 border-cyan-100 text-cyan-600 rounded-xl font-bold hover:bg-cyan-50 transition-all"
               >
-                {loading ? (
-                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-red-600 border-t-transparent"></div>
-                ) : (
-                  <>
-                    <IoTrash size={18} />
-                    {language === 'id' ? 'Hapus Room' : 'Delete Room'}
-                  </>
-                )}
+                {copiedLink ? <IoCheckmark /> : <IoLink />}
+                {copiedLink ? 'Copied!' : 'Copy Link'}
               </button>
               
               <button
-                onClick={() => {
-                  setCreatedRoomCode('');
-                  setCreatedRoomId('');
-                }}
-                disabled={loading}
-                className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                onClick={shareRoom}
+                className="flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-xl font-bold hover:shadow-lg transition-all"
               >
-                <IoClose size={18} />
-                {language === 'id' ? 'Tutup' : 'Close'}
+                <IoShareSocial />
+                Share
               </button>
             </div>
+
+            <button
+              onClick={deleteRoom}
+              disabled={loading}
+              className="w-full py-4 text-red-500 font-bold hover:bg-red-50 rounded-xl transition-colors flex items-center justify-center gap-2"
+            >
+              {loading ? 'Deleting...' : (
+                <>
+                  <IoTrash /> {language === 'id' ? 'Batalkan Room' : 'Cancel Room'}
+                </>
+              )}
+            </button>
+
           </div>
         </div>
       </div>
     );
   }
 
+  // --- UI: MENU UTAMA (Create / Join Tabs) ---
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-emerald-50 pb-6">
       <div className="bg-gradient-to-br from-emerald-500 to-green-500 p-4 mb-4 shadow-lg">
@@ -354,10 +375,11 @@ export default function MultiplayerLobby({
       </div>
 
       <div className="max-w-lg mx-auto px-4">
-        <div className="bg-gray-100 p-1 rounded-2xl flex mb-4">
+        {/* TAB SWITCHER */}
+        <div className="bg-gray-100 p-1 rounded-2xl flex mb-6">
           <button
             onClick={() => setActiveTab('create')}
-            className={`flex-1 py-2.5 rounded-xl font-bold transition-all flex items-center justify-center gap-2 text-sm ${
+            className={`flex-1 py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 text-sm ${
               activeTab === 'create'
                 ? 'bg-white text-blue-600 shadow-sm'
                 : 'text-gray-500'
@@ -368,7 +390,7 @@ export default function MultiplayerLobby({
           </button>
           <button
             onClick={() => setActiveTab('join')}
-            className={`flex-1 py-2.5 rounded-xl font-bold transition-all flex items-center justify-center gap-2 text-sm ${
+            className={`flex-1 py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 text-sm ${
               activeTab === 'join'
                 ? 'bg-white text-blue-600 shadow-sm'
                 : 'text-gray-500'
@@ -379,68 +401,90 @@ export default function MultiplayerLobby({
           </button>
         </div>
 
+        {/* TAB: CREATE ROOM */}
         {activeTab === 'create' && (
-          <div className="card animate-slide-up">
-            <h3 className="font-bold text-base text-gray-800 mb-3">
-              {language === 'id' ? 'Buat Room Baru' : 'Create New Room'}
-            </h3>
-
-            <div className="mb-4">
-              <label className="block text-xs font-bold text-gray-700 mb-2 flex items-center gap-1">
-                <IoTime size={14} />
-                {language === 'id' ? 'Waktu per Pemain' : 'Time per Player'}
+          <div className="card animate-slide-up space-y-6">
+            
+            {/* 1. Time Control Selection */}
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-3 uppercase tracking-wider">
+                ⏱️ {language === 'id' ? 'Waktu' : 'Time Control'}
               </label>
-              <p className="text-[10px] text-gray-500 mb-2">
-                {language === 'id' 
-                  ? 'Total waktu yang dimiliki setiap pemain untuk semua langkah mereka' 
-                  : 'Total time each player has for all their moves'}
-              </p>
-              
-              <div className="grid grid-cols-4 gap-2 mb-2">
+              <div className="grid grid-cols-4 gap-2">
                 {timePresets.map((preset) => (
                   <button
                     key={preset.value}
-                    onClick={() => {
-                      setTimeControl(preset.value);
-                      setCustomTime('');
-                    }}
-                    className={`p-2 rounded-xl font-bold transition-all text-xs ${
-                      timeControl === preset.value && !customTime
-                        ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white shadow-lg'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    onClick={() => setTimeControl(preset.value)}
+                    className={`py-2 rounded-xl font-bold transition-all text-xs border-2 ${
+                      timeControl === preset.value
+                        ? 'bg-blue-50 border-blue-500 text-blue-600'
+                        : 'bg-gray-50 border-gray-100 text-gray-600 hover:bg-gray-100'
                     }`}
                   >
                     {preset.label}
                   </button>
                 ))}
               </div>
+            </div>
 
-              <div className="relative">
-                <input
-                  type="number"
-                  placeholder={language === 'id' ? 'Custom (menit)' : 'Custom (min)'}
-                  value={customTime}
-                  onChange={(e) => setCustomTime(e.target.value)}
-                  className="w-full px-3 py-2 border-2 border-gray-200 rounded-xl font-bold text-center text-sm focus:border-blue-500 focus:outline-none"
-                  min="1"
-                  max="60"
-                />
+            {/* 2. Color Selection */}
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-3 uppercase tracking-wider">
+                ♟️ {language === 'id' ? 'Pilih Warna' : 'Choose Color'}
+              </label>
+              <div className="grid grid-cols-3 gap-3">
+                <button 
+                  onClick={() => setSelectedColor('white')} 
+                  className={`flex flex-col items-center gap-2 py-3 rounded-xl border-2 transition-all ${
+                    selectedColor === 'white' 
+                      ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' 
+                      : 'border-gray-100 bg-gray-50 hover:bg-gray-100'
+                  }`}
+                >
+                  <FaChessKing className="text-2xl text-gray-400 stroke-1" />
+                  <span className="text-xs font-bold text-gray-700">White</span>
+                </button>
+                
+                <button 
+                  onClick={() => setSelectedColor('random')} 
+                  className={`flex flex-col items-center gap-2 py-3 rounded-xl border-2 transition-all ${
+                    selectedColor === 'random' 
+                      ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' 
+                      : 'border-gray-100 bg-gray-50 hover:bg-gray-100'
+                  }`}
+                >
+                  <FaQuestion className="text-2xl text-gray-600" />
+                  <span className="text-xs font-bold text-gray-700">Random</span>
+                </button>
+                
+                <button 
+                  onClick={() => setSelectedColor('black')} 
+                  className={`flex flex-col items-center gap-2 py-3 rounded-xl border-2 transition-all ${
+                    selectedColor === 'black' 
+                      ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' 
+                      : 'border-gray-100 bg-gray-50 hover:bg-gray-100'
+                  }`}
+                >
+                  <FaChessKing className="text-2xl text-black" />
+                  <span className="text-xs font-bold text-gray-700">Black</span>
+                </button>
               </div>
             </div>
 
+            {/* Create Button */}
             <button
               onClick={createRoom}
               disabled={loading}
-              className="w-full bg-gradient-to-r from-emerald-500 to-green-500 text-white py-3 rounded-2xl font-bold hover:shadow-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              className="w-full bg-gradient-to-r from-emerald-500 to-green-500 text-white py-4 rounded-2xl font-bold hover:shadow-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2 text-lg"
             >
               {loading ? (
                 <>
                   <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-                  {language === 'id' ? 'Membuat...' : 'Creating...'}
+                  Creating...
                 </>
               ) : (
                 <>
-                  <IoAdd size={20} />
+                  <IoAdd size={24} />
                   {language === 'id' ? 'Buat Room' : 'Create Room'}
                 </>
               )}
@@ -448,6 +492,7 @@ export default function MultiplayerLobby({
           </div>
         )}
 
+        {/* TAB: JOIN ROOM */}
         {activeTab === 'join' && (
           <div className="space-y-4 animate-slide-up">
             <div className="card">
@@ -455,72 +500,74 @@ export default function MultiplayerLobby({
                 {language === 'id' ? 'Masukkan Kode Room' : 'Enter Room Code'}
               </h3>
 
-              <div className="flex flex-col sm:flex-row gap-2">
+              <div className="flex gap-2">
                 <input
                   type="text"
                   placeholder="ABC123"
                   value={roomCode}
                   onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                  className="flex-1 px-3 py-2 border-2 border-gray-200 rounded-xl font-bold text-center text-lg sm:text-xl tracking-widest uppercase focus:border-blue-500 focus:outline-none"
+                  className="flex-1 px-4 py-3 bg-gray-100 border-2 border-transparent focus:border-blue-500 rounded-xl font-bold text-center text-xl tracking-widest uppercase focus:outline-none"
                   maxLength={6}
                 />
                 <button
                   onClick={() => joinRoom(roomCode)}
                   disabled={loading || roomCode.length !== 6}
-                  className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white px-6 py-2 sm:py-0 rounded-xl font-bold hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2 whitespace-nowrap"
-                  aria-label={language === 'id' ? 'Masuk Room' : 'Join Room'}
+                  className="bg-blue-600 text-white px-6 rounded-xl font-bold hover:bg-blue-700 transition-colors disabled:opacity-50"
                 >
-                  <IoEnter size={20} />
-                  <span className="sm:hidden">{language === 'id' ? 'Join' : 'Join'}</span>
+                  Join
                 </button>
               </div>
             </div>
 
-            <div className="card">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-bold text-base text-gray-800">
-                  {language === 'id' ? 'Room Tersedia' : 'Available Rooms'}
-                </h3>
-                <button
-                  onClick={fetchAvailableRooms}
-                  className="p-2 hover:bg-gray-100 rounded-xl transition-colors text-blue-500"
-                  aria-label={language === 'id' ? 'Refresh Room' : 'Refresh Rooms'}
-                >
-                  <IoRefresh size={18} />
-                </button>
-              </div>
+            <div className="flex items-center justify-between px-1 mt-6 mb-2">
+              <h3 className="font-bold text-gray-700 text-sm">
+                {language === 'id' ? 'Room Tersedia' : 'Available Rooms'}
+              </h3>
+              <button 
+                onClick={fetchAvailableRooms}
+                className="text-blue-500 hover:bg-blue-50 p-2 rounded-lg transition-colors"
+                aria-label={language === 'id' ? 'Refresh Daftar Room' : 'Refresh Room List'}
+              >
+                <IoRefresh size={20} />
+              </button>
+            </div>
 
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {availableRooms.length === 0 ? (
-                  <div className="text-center py-8">
-                    <IoPeople className="text-5xl text-gray-300 mx-auto mb-2" />
-                    <p className="text-gray-500 text-sm">
-                      {language === 'id' ? 'Belum ada room tersedia' : 'No rooms available'}
-                    </p>
-                  </div>
-                ) : (
-                  availableRooms.map((room) => (
-                    <button
-                      key={room.id}
-                      onClick={() => joinRoom(room.room_code)}
-                      className="w-full p-3 bg-gradient-to-r from-blue-50 to-cyan-50 border-2 border-blue-200 rounded-xl hover:shadow-md transition-all text-left"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="font-bold text-gray-800 text-base mb-0.5">
-                            {room.room_code}
-                          </div>
-                          <div className="text-xs text-gray-600 flex items-center gap-1">
-                            <IoTime size={12} />
-                            {room.time_control / 60} {language === 'id' ? 'menit' : 'min'}
-                          </div>
+            <div className="space-y-3 max-h-96 overflow-y-auto pb-10">
+              {availableRooms.length === 0 ? (
+                <div className="text-center py-10 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
+                  <IoPeople className="text-4xl text-gray-300 mx-auto mb-2" />
+                  <p className="text-gray-400 text-sm font-medium">
+                    {language === 'id' ? 'Belum ada room aktif' : 'No active rooms found'}
+                  </p>
+                </div>
+              ) : (
+                availableRooms.map((room) => (
+                  <button
+                    key={room.id}
+                    onClick={() => joinRoom(room.room_code)}
+                    className="w-full p-4 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md hover:border-blue-300 transition-all text-left group"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-black text-gray-800 text-xl tracking-wider mb-1 group-hover:text-blue-600 transition-colors">
+                          {room.room_code}
                         </div>
-                        <IoEnter className="text-blue-500 text-2xl" />
+                        <div className="flex items-center gap-3 text-xs text-gray-500 font-medium">
+                          <span className="flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded-md">
+                            <IoTime size={10} /> {room.time_control / 60}m
+                          </span>
+                          <span className="flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded-md">
+                             Host: {room.host_color}
+                          </span>
+                        </div>
                       </div>
-                    </button>
-                  ))
-                )}
-              </div>
+                      <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-all">
+                        <IoEnter size={20} />
+                      </div>
+                    </div>
+                  </button>
+                ))
+              )}
             </div>
           </div>
         )}
