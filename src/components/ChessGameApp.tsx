@@ -136,6 +136,64 @@ export default function ChessGameApp() {
     return () => clearInterval(interval);
   }, [timerActive, game, gameStatus, gameMode]);
 
+  // 1. Dengerin Perubahan Room & Moves dari Database
+  useEffect(() => {
+    if (!currentRoomId || gameMode !== 'multiplayer') return;
+
+    // A. Ambil Data Room Awal (Warna & Posisi Bidak)
+    const fetchRoomData = async () => {
+      const { data: room } = await supabase
+        .from('game_rooms')
+        .select('*')
+        .eq('id', currentRoomId)
+        .single();
+      
+      if (room) {
+        // Load posisi bidak dari DB
+        const newGame = new Chess(room.current_fen);
+        setGame(newGame);
+        setBoard(newGame.board());
+        setMoveHistory(newGame.history()); // Load history kalau rejoin
+        
+        // TENTUIN WARNA PLAYER (Ini fix biar gak null/salah warna!)
+        // Logic: Kalo gw Host -> Pake warna Host. Kalo bukan -> Warna lawannya.
+        const myColor = userId === room.host_user_id 
+          ? room.host_color 
+          : (room.host_color === 'white' ? 'black' : 'white');
+        
+        setPlayerColor(myColor);
+        setShowGame(true); // Tampilin board
+      }
+    };
+
+    fetchRoomData();
+
+    // B. Subscribe Realtime (Biar bidak gerak sendiri pas lawan jalan)
+    const channel = supabase
+      .channel(`room_${currentRoomId}`)
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'game_moves', 
+        filter: `room_id=eq.${currentRoomId}` 
+      }, (payload) => {
+        const moveData = payload.new;
+        // Cuma update kalau move ini DARI LAWAN (bukan move kita sendiri)
+        if (moveData.player_id !== userId) {
+          const newGame = new Chess(moveData.fen);
+          setGame(newGame);
+          setBoard(newGame.board());
+          setMoveHistory(newGame.history());
+          setLastMove({ from: moveData.from_square, to: moveData.to_square });
+          playSound('move');
+          checkGameStatus(newGame); // Cek skakmat/remis
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [currentRoomId, gameMode, userId]);
+
   // --- HELPER FUNCTIONS ---
 
   const checkUser = async () => {
@@ -438,38 +496,63 @@ export default function ChessGameApp() {
     }
   };
 
-  const handleSquareClick = (row: number, col: number) => {
+  const handleSquareClick = async (row: number, col: number) => {
     if (isThinking || gameStatus) return;
     
+    // Validasi Giliran: Gaboleh gerak kalau bukan giliran warna kita
     if ((game.turn() === 'w' && playerColor === 'black') || 
         (game.turn() === 'b' && playerColor === 'white')) return;
 
     const square = getSquareNotation(row, col) as Square;
     const piece = board[row][col];
 
+    // Logic Pilih Square / Jalanin Bidak
     if (selectedSquare) {
       try {
         const move = { from: selectedSquare as Square, to: square, promotion: 'q' };
-        const valid = game.moves({ verbose: true }).find(m => m.from === selectedSquare && m.to === square);
+        // Cek validitas move pake library chess.js
+        const validMove = game.moves({ verbose: true }).find(m => m.from === selectedSquare && m.to === square);
         
-        if (valid) {
-          const from = selectedSquare;
-          game.move(move);
+        if (validMove) {
+          game.move(move); // Update lokal biar cepet
           playSound('move');
           
-          const newGame = new Chess();
-          newGame.loadPgn(game.pgn());
-          
+          const newGame = new Chess(game.fen());
           setGame(newGame);
           setBoard(newGame.board());
           setSelectedSquare(null);
           setValidMoves([]);
           setMoveHistory(newGame.history());
-          setLastMove({ from, to: square });
+          setLastMove({ from: selectedSquare, to: square });
           
           checkGameStatus(newGame);
-          if (!newGame.isGameOver()) makeAIMove(newGame);
+
+          // === CABANG LOGIKA (AI vs MULTIPLAYER) ===
+          
+          if (gameMode === 'ai') {
+            // Mode AI: Suruh bot mikir
+            if (!newGame.isGameOver()) makeAIMove(newGame);
+            
+          } else if (gameMode === 'multiplayer' && currentRoomId) {
+            // Mode Online: KIRIM MOVE KE DATABASE
+            await supabase.from('game_moves').insert({
+              room_id: currentRoomId,
+              player_id: userId,
+              from_square: selectedSquare,
+              to_square: square,
+              fen: newGame.fen(),
+              san: validMove.san,
+              move_number: game.history().length
+            });
+
+            // Update status Room (biar tau giliran siapa & FEN terakhir)
+            await supabase.from('game_rooms').update({
+              current_fen: newGame.fen(),
+              last_move_at: new Date().toISOString()
+            }).eq('id', currentRoomId);
+          }
         } else {
+          // Kalau klik bidak sendiri (ganti seleksi)
           if (piece && piece.color === game.turn()) {
             setSelectedSquare(square);
             setValidMoves(game.moves({ square, verbose: true }));
@@ -478,11 +561,12 @@ export default function ChessGameApp() {
             setValidMoves([]);
           }
         }
-      } catch (e) { 
-        setSelectedSquare(null); 
-        setValidMoves([]); 
+      } catch (e) {
+        setSelectedSquare(null);
+        setValidMoves([]);
       }
     } else {
+      // Klik pertama (pilih bidak)
       if (piece && piece.color === game.turn()) {
         setSelectedSquare(square);
         setValidMoves(game.moves({ square, verbose: true }));
@@ -754,6 +838,80 @@ export default function ChessGameApp() {
               {t.save}
             </button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // === TAMBAHAN BARU: Multiplayer Screen ===
+  else if (showGame && gameMode === 'multiplayer') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-emerald-50 flex flex-col">
+        {/* Reuse komponen yang udah ada */}
+        <Toast message={toast.message} show={toast.show} type={toast.type} onHide={() => setToast({ ...toast, show: false })} />
+        <GameResultModal status={gameStatus} onReset={() => {}} onHome={() => { setShowGame(false); setGameMode(null); }} language={language} />
+
+        {/* Header Multiplayer */}
+        <div className="bg-white border-b border-gray-200 shadow-sm px-4 py-3 flex justify-between items-center sticky top-0 z-30">
+          <button 
+            onClick={() => { setShowGame(false); setGameMode(null); }} 
+            className="p-2 rounded-xl hover:bg-gray-100 text-gray-700"
+            aria-label={language === 'id' ? 'Kembali ke Menu' : 'Back to Menu'}
+          >
+            <IoArrowBack size={24} />
+          </button>
+          <div className="font-bold text-gray-800 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+            Online Match
+          </div>
+          <div className="w-8"></div> {/* Spacer */}
+        </div>
+
+        {/* Area Board */}
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col max-w-2xl mx-auto w-full justify-center">
+          
+          {/* Info Lawan */}
+          <div className="flex justify-between items-center mb-4 px-2">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 font-bold border-2 border-gray-300">
+                OP
+              </div>
+              <div>
+                <div className="font-bold text-gray-800">Opponent</div>
+                <div className="text-xs text-gray-500">
+                   {/* Indikator Giliran Lawan */}
+                   {(game.turn() === 'w' && playerColor === 'black') || (game.turn() === 'b' && playerColor === 'white') 
+                     ? <span className="text-blue-600 font-bold animate-pulse">Thinking...</span>
+                     : "Waiting..."}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* CHESS BOARD */}
+          <EnhancedChessBoard
+            board={board}
+            orientation={playerColor || 'white'} // Pastikan orientasi sesuai warna kita!
+            selectedSquare={selectedSquare}
+            validMoves={validMoves}
+            onSquareClick={handleSquareClick}
+            lastMove={lastMove}
+            showTimer={false}
+          />
+
+          {/* Info Kita */}
+          <div className="mt-4 px-2">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold border-2 border-blue-200">
+                ME
+              </div>
+              <div>
+                <div className="font-bold text-gray-800">{userName}</div>
+                <div className="text-xs font-bold text-blue-600 capitalize">{playerColor} Pieces</div>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
     );

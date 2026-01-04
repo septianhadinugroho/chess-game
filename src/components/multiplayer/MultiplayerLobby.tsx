@@ -74,27 +74,29 @@ export default function MultiplayerLobby({
     try {
       const finalTime = customTime ? parseInt(customTime) * 60 : timeControl;
       const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+      const hostColor = Math.random() > 0.5 ? 'white' : 'black';
       
       const { data, error } = await supabase
         .from('game_rooms')
         .insert([{
           room_code: code,
           host_user_id: userId,
+          host_color: hostColor,
           time_control: finalTime,
           white_time_left: finalTime,
           black_time_left: finalTime,
-          status: 'waiting'
+          status: 'waiting',
+          current_fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
         }])
         .select()
         .single();
 
       if (error) throw error;
-      
-      setCreatedRoomId(data.id);
-      setCreatedRoomCode(code);
+
+      onJoinRoom(data.id, code);
     } catch (error) {
       console.error('Error creating room:', error);
-      alert('Failed to create room. Please try again.');
+      alert('Failed to create room.');
     } finally {
       setLoading(false);
     }
