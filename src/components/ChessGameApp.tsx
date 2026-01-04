@@ -23,12 +23,16 @@ import { GameResultModal } from '@/components/game/GameResultModal';
 import { Toast } from '@/components/ui/Toast';
 
 // Icons
-import { IoLogOut, IoArrowBack, IoRefresh, IoArrowUndo, IoSave, IoLogoInstagram, IoLanguage, IoRocket, IoShieldCheckmark, IoSparkles, IoList } from 'react-icons/io5';
+import { 
+  IoLogOut, IoArrowBack, IoRefresh, IoArrowUndo, IoSave, 
+  IoLogoInstagram, IoLanguage, IoRocket, IoShieldCheckmark, IoList 
+} from 'react-icons/io5';
 import { GiChessKnight, GiRobotGolem } from 'react-icons/gi';
 
 type GameMode = 'ai' | 'multiplayer' | null;
 
 export default function ChessGameApp() {
+  // --- STATE MANAGEMENT ---
   const [game, setGame] = useState(new Chess());
   const [board, setBoard] = useState(game.board());
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
@@ -70,6 +74,8 @@ export default function ChessGameApp() {
   const loseSound = useRef<HTMLAudioElement | null>(null);
 
   const t = translations[language];
+
+  // --- EFFECTS ---
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -130,6 +136,8 @@ export default function ChessGameApp() {
     return () => clearInterval(interval);
   }, [timerActive, game, gameStatus, gameMode]);
 
+  // --- HELPER FUNCTIONS ---
+
   const checkUser = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.user) {
@@ -178,6 +186,8 @@ export default function ChessGameApp() {
     }
   };
 
+  // --- AUTH & NAVIGATION HANDLERS ---
+
   const handleLogin = async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -203,9 +213,10 @@ export default function ChessGameApp() {
   const handleJoinRoom = (roomId: string, roomCode: string) => {
     setCurrentRoomId(roomId);
     setShowMultiplayerLobby(false);
-    // TODO: Implement multiplayer game screen
     showToast(`Joined room: ${roomCode}`, 'success');
   };
+
+  // --- GAME LOGIC ---
 
   const startGame = async (color: 'white' | 'black' | 'random') => {
     let savedData = null;
@@ -416,7 +427,7 @@ export default function ChessGameApp() {
   const checkGameStatus = (chess: Chess) => {
     if (chess.isCheckmate()) {
       const playerWon = (chess.turn() === 'b' && playerColor === 'white') || 
-                       (chess.turn() === 'w' && playerColor === 'black');
+                        (chess.turn() === 'w' && playerColor === 'black');
       setGameStatus(playerWon ? `🎉 ${t.youWin}` : `💀 ${t.youLose}`);
       saveGameResult(playerWon);
       setTimerActive(false);
@@ -478,6 +489,8 @@ export default function ChessGameApp() {
       }
     }
   };
+
+  // --- RENDERING ---
 
   if (!isLoggedIn) {
     return <LoginCard onLogin={handleLogin} language={language} onLanguageToggle={toggleLanguage} />;
@@ -617,7 +630,7 @@ export default function ChessGameApp() {
           <button 
             onClick={() => { setShowGame(false); setGameMode(null); resetGame(); }} 
             className="p-2 rounded-xl hover:bg-gray-100 text-gray-700 transition-colors touch-feedback"
-            aria-label={t.backToMenu} // Added aria-label
+            aria-label={t.backToMenu}
           >
             <IoArrowBack size={24} />
           </button>
@@ -633,14 +646,14 @@ export default function ChessGameApp() {
                   ? 'bg-blue-500 text-white border-blue-500'
                   : 'hover:bg-blue-50 text-blue-600 border-blue-200'
               }`}
-              aria-label="Toggle Move History" // Added aria-label
+              aria-label="Toggle Move History"
             >
               <IoList size={18} />
             </button>
             <button 
               onClick={() => resetGame(true)}
               className="p-2 rounded-xl hover:bg-red-50 text-red-600 flex items-center gap-1 bg-red-50/50 px-3 border border-red-200 transition-colors touch-feedback"
-              aria-label={t.reset} // Added aria-label
+              aria-label={t.reset}
             >
               <IoRefresh size={18} /> <span className="text-xs font-bold">{t.reset}</span>
             </button>
@@ -714,7 +727,7 @@ export default function ChessGameApp() {
             ) : null}
           </div>
 
-          {/* Control Buttons */}
+          {/* Control Buttons (Undo/Save) */}
           <div className="grid grid-cols-2 gap-3 mt-auto mb-4">
             <button
               onClick={handleUndo}
@@ -769,41 +782,39 @@ export default function ChessGameApp() {
   // Default: Home Tab
   return (
     <div className="min-h-screen pb-20 bg-gradient-to-br from-blue-50 via-white to-emerald-50">
-      <Toast 
-        message={toast.message} 
-        show={toast.show} 
+      <Toast
+        message={toast.message}
+        show={toast.show}
         type={toast.type}
-        onHide={() => setToast({ ...toast, show: false })} 
+        onHide={() => setToast({ ...toast, show: false })}
       />
 
-      {/* Home Header */}
-      <div className="bg-white p-6 pb-8 rounded-b-[2.5rem] shadow-sm mb-6 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-blue-50 rounded-full -mr-32 -mt-32 opacity-50 pointer-events-none"></div>
-        <div className="absolute bottom-0 left-0 w-48 h-48 bg-emerald-50 rounded-full -ml-24 -mb-24 opacity-50 pointer-events-none"></div>
-        
-        <div className="relative">
-          <div className="flex justify-between items-start mb-4">
+      {/* Home Header - Simplified & Compact */}
+      <div className="bg-gradient-to-br from-blue-500 to-emerald-500 p-4 shadow-sm mb-4">
+        <div className="max-w-lg mx-auto">
+          <div className="flex justify-between items-center mb-3">
             <div>
-              <p className="text-gray-500 text-sm font-medium mb-1">{language === 'id' ? 'Selamat Datang,' : 'Welcome,'}</p>
-              <h1 className="text-2xl font-bold text-gray-800">
+              <p className="text-blue-100 text-xs font-medium mb-0.5">{language === 'id' ? 'Halo,' : 'Hi,'}</p>
+              <h1 className="text-xl font-bold text-white">
                 {isLoggedIn ? userName.split(' ')[0] : 'Guest'} 👋
               </h1>
             </div>
-            <div className="bg-gradient-to-br from-blue-500 to-emerald-500 text-white px-4 py-2 rounded-2xl shadow-lg flex flex-col items-center">
-              <span className="text-xs font-medium opacity-90">{t.level}</span>
-              <span className="text-xl font-bold">{progress.highestLevel}</span>
+            <div className="bg-white/20 backdrop-blur-sm text-white px-3 py-2 rounded-xl shadow-lg">
+              <span className="text-[10px] font-medium opacity-90 block">{t.level}</span>
+              <span className="text-lg font-black">{progress.highestLevel}</span>
             </div>
           </div>
           
-          {/* Quick Stats Card */}
-          <div className="bg-gray-50 rounded-2xl p-4 flex justify-between items-center border border-gray-100">
-            <div className="text-center flex-1 border-r border-gray-200">
-              <p className="text-xs text-gray-500 mb-1">{language === 'id' ? 'Main' : 'Played'}</p>
-              <p className="font-bold text-gray-800 text-lg">{progress.gamesPlayed}</p>
+          {/* Quick Stats - Compact */}
+          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 flex justify-around border border-white/20">
+            <div className="text-center">
+              <p className="text-[10px] text-blue-100 mb-0.5 font-medium">{language === 'id' ? 'Main' : 'Played'}</p>
+              <p className="font-bold text-white text-base">{progress.gamesPlayed}</p>
             </div>
-            <div className="text-center flex-1">
-              <p className="text-xs text-gray-500 mb-1">{language === 'id' ? 'Menang' : 'Won'}</p>
-              <p className="font-bold text-emerald-600 text-lg">{progress.gamesWon}</p>
+            <div className="w-px bg-white/20"></div>
+            <div className="text-center">
+              <p className="text-[10px] text-blue-100 mb-0.5 font-medium">{language === 'id' ? 'Menang' : 'Won'}</p>
+              <p className="font-bold text-white text-base">{progress.gamesWon}</p>
             </div>
           </div>
         </div>
@@ -815,41 +826,51 @@ export default function ChessGameApp() {
           <ModeSelector onSelectMode={handleModeSelect} language={language} />
         ) : gameMode === 'ai' ? (
           /* AI Setup Menu */
-          <div className="space-y-6">
+          <div className="space-y-4" id="ai-setup-section">
             <div className="flex items-center gap-2 mb-2">
               <button 
                 onClick={() => setGameMode(null)}
                 className="p-2 rounded-xl hover:bg-white hover:shadow-sm transition-all text-gray-600"
-                aria-label={t.backToMenu} // Added aria-label
+                aria-label={t.backToMenu}
               >
                 <IoArrowBack size={24} />
               </button>
               <h2 className="text-xl font-bold text-gray-800">{language === 'id' ? 'Setup Permainan' : 'Game Setup'}</h2>
             </div>
-
             <LevelSelector 
               currentLevel={currentLevel} 
-              onSelectLevel={setCurrentLevel} 
+              onSelectLevel={(level) => {
+                setCurrentLevel(level);
+                // Auto scroll ke color selector setelah pilih level
+                setTimeout(() => {
+                  const colorSection = document.getElementById('color-selector-section');
+                  if (colorSection) {
+                    const elementPosition = colorSection.getBoundingClientRect().top;
+                    const offsetPosition = elementPosition + window.pageYOffset - 80;
+                    
+                    window.scrollTo({
+                      top: offsetPosition,
+                      behavior: 'smooth'
+                    });
+                  }
+                }, 200);
+              }}
               highestLevel={progress.highestLevel}
               language={language}
             />
             
-            <ColorSelector 
-              onSelectColor={startGame}
-              language={language}
-            />
-            
-            <button
-              onClick={() => startGame(playerColor || 'random')}
-              className="w-full bg-gradient-to-r from-blue-600 to-emerald-600 text-white font-bold py-4 rounded-2xl shadow-lg shadow-blue-200 hover:shadow-xl hover:scale-[1.02] transition-all active:scale-[0.98] flex items-center justify-center gap-3"
-            >
-              <IoRocket size={24} />
-              {language === 'id' ? 'Mulai Permainan' : 'Start Game'}
-            </button>
+            <div id="color-selector-section">
+              <ColorSelector 
+                onSelectColor={(color) => {
+                  setPlayerColor(color === 'random' ? (Math.random() > 0.5 ? 'white' : 'black') : color);
+                  startGame(color);
+                }}
+                language={language}
+              />
+            </div>
           </div>
         ) : null}
       </div>
-
       <BottomNav activeTab={activeTab} onTabChange={setActiveTab} language={language} />
     </div>
   );
