@@ -105,36 +105,52 @@ export default function ChessGameApp() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Timer effect (FIXED)
+  // Timer effect (FIXED & ROBUST)
   useEffect(() => {
+    // Kalau pause, game over, atau belum mulai -> STOP
     if (!timerActive || gameStatus) return;
 
     const interval = setInterval(() => {
       const currentTurn = game.turn();
       
+      // LOGIC WAKTU HABIS
+      if (whiteTime <= 0) {
+        clearInterval(interval);
+        setGameStatus('⏰ Waktu Habis - Hitam Menang!');
+        setTimerActive(false);
+        // Kalau saya Hitam (menang) ATAU saya Putih (kalah), simpan result sesuai sudut pandang
+        if (gameMode === 'multiplayer') {
+           // Biar gak double update, yang lapor kalah adalah yang kehabisan waktu (Putih)
+           if (playerColor === 'white') saveGameResult(false); 
+           // Atau yang menang lapor menang? Lebih aman yang kehabisan waktu lapor kalah.
+        } else {
+           saveGameResult(false);
+        }
+        return;
+      }
+      
+      if (blackTime <= 0) {
+        clearInterval(interval);
+        setGameStatus('⏰ Waktu Habis - Putih Menang!');
+        setTimerActive(false);
+        if (gameMode === 'multiplayer') {
+           if (playerColor === 'black') saveGameResult(false);
+        } else {
+           saveGameResult(false);
+        }
+        return;
+      }
+
+      // DECREMENT
       if (currentTurn === 'w') {
-        setWhiteTime(prev => {
-          if (prev <= 0) {
-            setGameStatus('⏰ Waktu Habis - Hitam Menang!');
-            saveGameResult(false);
-            return 0;
-          }
-          return prev - 1;
-        });
+        setWhiteTime(t => Math.max(0, t - 1));
       } else {
-        setBlackTime(prev => {
-          if (prev <= 0) {
-            setGameStatus('⏰ Waktu Habis - Putih Menang!');
-            saveGameResult(false);
-            return 0;
-          }
-          return prev - 1;
-        });
+        setBlackTime(t => Math.max(0, t - 1));
       }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [timerActive, game, gameStatus]); // Hapus gameMode dari dependency juga
+  }, [timerActive, game, gameStatus, whiteTime, blackTime, playerColor, gameMode]);
 
   // --- MULTIPLAYER LOGIC (Sync, Timer, Pause) ---
   useEffect(() => {
@@ -167,14 +183,25 @@ export default function ChessGameApp() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'game_rooms', filter: `id=eq.${currentRoomId}` }, (payload) => {
         const newRoom = payload.new as any;
         if (newRoom) {
-          // Sync Pause/Timer dari DB
-          setTimerActive(newRoom.status === 'playing' && !newRoom.is_paused);
-          setWhiteTime(newRoom.white_time_left); // Sync waktu biar gak ngaco beda browser
-          setBlackTime(newRoom.black_time_left);
+          // SYNC TIMER DARI DB (PENTING!)
+          // Timpa waktu lokal dengan waktu server setiap ada update langkah
+          if (newRoom.white_time_left !== null) setWhiteTime(newRoom.white_time_left);
+          if (newRoom.black_time_left !== null) setBlackTime(newRoom.black_time_left);
           
-          // Kalau status berubah jadi finished
-          if (newRoom.status === 'finished') {
-             // Handle game over logic here if needed
+          setTimerActive(newRoom.status === 'playing' && !newRoom.is_paused);
+          
+          // Handle Game Over dari lawan
+          if (newRoom.status === 'finished' && !gameStatus) {
+             if (newRoom.winner_id === userId) {
+                setGameStatus('🏆 Kamu Menang! (Lawan Resign/Timeout)');
+                playSound('win');
+             } else if (newRoom.winner_id) {
+                setGameStatus('💀 Kamu Kalah!');
+                playSound('lose');
+             } else {
+                setGameStatus('Game Over');
+             }
+             setTimerActive(false);
           }
         }
       })
@@ -423,14 +450,35 @@ export default function ChessGameApp() {
     if(won) playSound('win');
     else playSound('lose');
 
+    // 1. Update Room di Database (PENTING BIAR GAK NULL)
+    if (gameMode === 'multiplayer' && currentRoomId) {
+      // Tentukan siapa pemenangnya secara eksplisit
+      // Logic: Kalau gw menang, winner_id = gw. Kalau kalah, winner_id = lawan (tapi kita gak tau ID lawan disini, jadi set null atau logic di backend). 
+      // TAPI LEBIH AMAN: Update status aja, biar RLS/Backend yang validasi atau Client sepakat.
+      // Sederhananya untuk client-side:
+      
+      const updateData: any = {
+        status: 'finished',
+        result: won ? 'win' : 'lose', // Ini dari sudut pandang yang update
+        pgn: game.pgn()
+      };
+
+      if (userId && won) {
+         updateData.winner_id = userId;
+      }
+
+      await supabase.from('game_rooms').update(updateData).eq('id', currentRoomId);
+    }
+
+    // 2. Simpan History ke User Profile (Kode Lama)
     if (!userId) return;
     
     try {
       const newWon = won ? progress.gamesWon + 1 : progress.gamesWon;
       const newPlayed = progress.gamesPlayed + 1;
       const newLevel = won && currentLevel < 10 && currentLevel === progress.highestLevel 
-                       ? progress.highestLevel + 1 
-                       : progress.highestLevel;
+                        ? progress.highestLevel + 1 
+                        : progress.highestLevel;
 
       setProgress({ ...progress, gamesWon: newWon, gamesPlayed: newPlayed, highestLevel: newLevel });
 
@@ -549,7 +597,7 @@ export default function ChessGameApp() {
             if (!newGame.isGameOver()) makeAIMove(newGame);
             
           } else if (gameMode === 'multiplayer' && currentRoomId) {
-            // Mode Online: KIRIM MOVE KE DATABASE
+            // Mode Online: KIRIM MOVE & WAKTU TERAKHIR
             await supabase.from('game_moves').insert({
               room_id: currentRoomId,
               player_id: userId,
@@ -560,11 +608,20 @@ export default function ChessGameApp() {
               move_number: game.history().length
             });
 
-            // Update status Room (biar tau giliran siapa & FEN terakhir)
-            await supabase.from('game_rooms').update({
+            // UPDATE WAKTU KE DB BIAR SYNC SAMA LAWAN
+            // Kalau saya putih, update white_time_left saya.
+            const updatePayload: any = {
               current_fen: newGame.fen(),
               last_move_at: new Date().toISOString()
-            }).eq('id', currentRoomId);
+            };
+
+            if (playerColor === 'white') {
+               updatePayload.white_time_left = whiteTime; 
+            } else {
+               updatePayload.black_time_left = blackTime;
+            }
+
+            await supabase.from('game_rooms').update(updatePayload).eq('id', currentRoomId);
           }
         } else {
           // Kalau klik bidak sendiri (ganti seleksi)
