@@ -586,6 +586,7 @@ export default function ChessGameApp() {
           {/* Chess Board */}
           <ChessBoard
             board={board}
+            orientation={playerColor === 'black' ? 'black' : 'white'}
             selectedSquare={selectedSquare}
             validMoves={validMoves}
             onSquareClick={handleSquareClick}
