@@ -7,6 +7,7 @@ export const translations = {
     loginSubtitle: 'Tantang AI dari level pemula hingga grand master',
     loginButton: 'Masuk dengan Google',
     logout: 'Keluar Akun',
+    autoSave: 'Progress & statistik tersimpan otomatis',
     
     // Home
     greeting: 'Hai',
@@ -15,6 +16,8 @@ export const translations = {
     wins: 'Menang',
     selectLevel: 'Pilih Level',
     selectColor: 'Pilih Warna',
+    chooseDifficulty: 'Pilih tingkat kesulitan',
+    levelProgress: 'Progress Level',
     
     // Colors
     white: 'Putih',
@@ -23,6 +26,12 @@ export const translations = {
     firstMove: 'Jalan duluan',
     secondMove: 'Jalan kedua',
     randomColor: 'Acak warna',
+    chooseColorDesc: 'Tentukan warna bidakmu',
+    aggressive: 'Agresif',
+    defensive: 'Defensif',
+    surprise: 'Kejutan!',
+    playingTips: 'Tips Bermain',
+    tipsDesc: 'Putih: Kontrol awal permainan. Hitam: Strategi counter-attack. Random: Buat permainan lebih menantang!',
     
     // Game
     aiThinking: 'Sedang berpikir...',
@@ -35,6 +44,13 @@ export const translations = {
     youWin: 'Anda Menang!',
     youLose: 'Anda Kalah!',
     draw: 'Remis / Seri',
+    aiPlayer: 'Komputer AI',
+    youPlayer: 'Kamu',
+    
+    // Game Result Messages
+    dontGiveUp: 'Jangan menyerah! Coba lagi dan raih kemenangan!',
+    congrats: 'Selamat! Kamu berhasil mengalahkan AI!',
+    drawMessage: 'Permainan seri! Kedua pemain bermain bagus.',
     
     // Controls
     undo: 'Undo',
@@ -46,20 +62,27 @@ export const translations = {
     // Stats
     stats: 'Statistik',
     performance: 'Performance & Progress',
-    highestLevel: 'Highest Level',
-    totalGames: 'Total Games',
+    highestLevel: 'Level Tertinggi',
+    totalGames: 'Total Permainan',
     won: 'Menang',
     lost: 'Kalah',
     winRate: 'Win Rate',
     currentStreak: 'Current Streak',
-    recentGames: 'Recent Games',
-    moves: 'moves',
+    recentGames: 'Riwayat Permainan',
+    moves: 'langkah',
+    detailedStats: 'Statistik Detail',
+    noHistory: 'Belum ada riwayat permainan',
+    playFirstGame: 'Mainkan game pertamamu!',
     
     // Leaderboard
     topPlayers: 'Top Players',
-    globalRanking: 'Global Ranking',
+    globalRanking: 'Ranking Global',
     all: 'Semua',
     refresh: 'Refresh Ranking',
+    loadingRankings: 'Memuat ranking...',
+    noRankingData: 'Belum ada data ranking',
+    beTheFirst: 'Jadilah yang pertama!',
+    youLabel: 'KAMU',
     
     // Settings
     settings: 'Pengaturan',
@@ -67,7 +90,9 @@ export const translations = {
     googleAccount: 'Akun Google',
     aboutApp: 'Tentang Aplikasi',
     appVersion: 'Chess Master AI Challenge v1.0',
-    builtBy: 'Built by',
+    builtBy: 'Dibuat oleh',
+    language: 'Bahasa',
+    locked: 'Terkunci',
     
     // Tabs
     home: 'Home',
@@ -78,7 +103,21 @@ export const translations = {
     gameLoaded: 'Game sebelumnya dimuat!',
     moveCanceled: 'Langkah dibatalkan',
     
-    // AI Levels
+    // AI Levels Description
+    levelDesc: {
+      1: 'Belajar dasar catur',
+      2: 'Santai bermain',
+      3: 'Mulai berpikir',
+      4: 'Perlu strategi',
+      5: 'Harus fokus',
+      6: 'Tantangan berat',
+      7: 'Butuh keahlian',
+      8: 'Level ahli',
+      9: 'Hampir mustahil',
+      10: 'Ultimate boss!'
+    },
+    
+    // AI Levels Name
     levels: {
       1: 'Pemula',
       2: 'Mudah',
@@ -98,6 +137,7 @@ export const translations = {
     loginSubtitle: 'Challenge AI from beginner to grand master',
     loginButton: 'Sign in with Google',
     logout: 'Sign Out',
+    autoSave: 'Progress & stats auto-saved',
     
     // Home
     greeting: 'Hi',
@@ -106,6 +146,8 @@ export const translations = {
     wins: 'Wins',
     selectLevel: 'Select Level',
     selectColor: 'Select Color',
+    chooseDifficulty: 'Choose difficulty level',
+    levelProgress: 'Level Progress',
     
     // Colors
     white: 'White',
@@ -114,6 +156,12 @@ export const translations = {
     firstMove: 'First move',
     secondMove: 'Second move',
     randomColor: 'Random color',
+    chooseColorDesc: 'Choose your pieces color',
+    aggressive: 'Aggressive',
+    defensive: 'Defensive',
+    surprise: 'Surprise!',
+    playingTips: 'Playing Tips',
+    tipsDesc: 'White: Control early game. Black: Counter-attack strategy. Random: Make it more challenging!',
     
     // Game
     aiThinking: 'Thinking...',
@@ -126,6 +174,13 @@ export const translations = {
     youWin: 'You Win!',
     youLose: 'You Lose!',
     draw: 'Draw',
+    aiPlayer: 'AI Computer',
+    youPlayer: 'You',
+    
+    // Game Result Messages
+    dontGiveUp: 'Don\'t give up! Try again and claim victory!',
+    congrats: 'Congratulations! You defeated the AI!',
+    drawMessage: 'It\'s a draw! Both players played well.',
     
     // Controls
     undo: 'Undo',
@@ -145,12 +200,19 @@ export const translations = {
     currentStreak: 'Current Streak',
     recentGames: 'Recent Games',
     moves: 'moves',
+    detailedStats: 'Detailed Stats',
+    noHistory: 'No game history yet',
+    playFirstGame: 'Play your first game!',
     
     // Leaderboard
     topPlayers: 'Top Players',
     globalRanking: 'Global Ranking',
     all: 'All',
     refresh: 'Refresh Ranking',
+    loadingRankings: 'Loading rankings...',
+    noRankingData: 'No ranking data yet',
+    beTheFirst: 'Be the first!',
+    youLabel: 'YOU',
     
     // Settings
     settings: 'Settings',
@@ -159,6 +221,8 @@ export const translations = {
     aboutApp: 'About Application',
     appVersion: 'Chess Master AI Challenge v1.0',
     builtBy: 'Built by',
+    language: 'Language',
+    locked: 'Locked',
     
     // Tabs
     home: 'Home',
@@ -169,7 +233,21 @@ export const translations = {
     gameLoaded: 'Previous game loaded!',
     moveCanceled: 'Move canceled',
     
-    // AI Levels
+    // AI Levels Description
+    levelDesc: {
+      1: 'Learn basic chess',
+      2: 'Casual play',
+      3: 'Start thinking',
+      4: 'Need strategy',
+      5: 'Must focus',
+      6: 'Hard challenge',
+      7: 'Need skills',
+      8: 'Expert level',
+      9: 'Almost impossible',
+      10: 'Ultimate boss!'
+    },
+
+    // AI Levels Name
     levels: {
       1: 'Beginner',
       2: 'Easy',

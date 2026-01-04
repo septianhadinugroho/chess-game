@@ -141,27 +141,88 @@ export default function ChessGameApp() {
     setActiveTab('home');
   };
 
-  const startGame = (color: 'white' | 'black' | 'random') => {
-    const chosen = color === 'random' ? (Math.random() > 0.5 ? 'white' : 'black') : color;
-    setPlayerColor(chosen);
-    setShowGame(true);
-    
-    const saved = loadSavedGame();
-    if (saved && saved.level === currentLevel && saved.color === chosen) {
-      const newGame = new Chess(saved.fen);
-      setGame(newGame);
-      setBoard(newGame.board());
-      showToast(t.gameLoaded, 'info');
-    } else {
-      resetGame();
+  // Update fungsi startGame dengan "FEN Fallback" agar tidak reset ke awal
+  const startGame = async (color: 'white' | 'black' | 'random') => {
+    // 1. Cek Save Data
+    let savedData = null;
+    if (userId) {
+      const { data } = await supabase
+        .from('saved_games')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('level', currentLevel)
+        .single();
+      savedData = data;
+    }
+
+    // 2. Tentukan Warna (Prioritas warna dari Save Data)
+    let chosen = color === 'random' ? (Math.random() > 0.5 ? 'white' : 'black') : color;
+    if (savedData && savedData.player_color) {
+      chosen = savedData.player_color;
     }
     
-    if (chosen === 'black') {
-      setTimeout(() => makeAIMove(new Chess()), 800);
+    setPlayerColor(chosen);
+    setShowGame(true);
+
+    // 3. Setup Board (FIXED LOGIC)
+    const newGame = new Chess();
+    // Ini string FEN posisi awal catur
+    const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    
+    if (savedData) {
+      let loadedSuccessfully = false;
+
+      // Opsi A: Coba Load PGN dulu (biar history Undo ada)
+      if (savedData.pgn) {
+        try {
+          newGame.loadPgn(savedData.pgn);
+          
+          // VALIDASI PENTING (Ini perbaikannya):
+          // Kalau setelah loadPgn papannya masih posisi awal, 
+          // TAPI data FEN di database BUKAN posisi awal, berarti loadPgn GAGAL (cuma header doang).
+          // Kita anggap gagal biar dia lanjut ke Opsi B.
+          if (newGame.fen() === START_FEN && savedData.fen !== START_FEN) {
+            console.warn("PGN load menghasilkan papan kosong, beralih ke FEN...");
+            loadedSuccessfully = false; 
+          } else {
+            loadedSuccessfully = true;
+          }
+        } catch (e) {
+          console.error("Error loading PGN:", e);
+          loadedSuccessfully = false;
+        }
+      }
+
+      // Opsi B: Fallback ke FEN (Posisi Bidak Pasti Benar)
+      // Kalau PGN gagal atau kosong, kita pakai FEN yang akurat dari database
+      if (!loadedSuccessfully) {
+        try {
+          newGame.load(savedData.fen);
+          console.log("Berhasil load via FEN");
+        } catch (e) {
+          console.error("Error loading FEN:", e);
+        }
+      }
+
+      showToast(t.gameLoaded, 'info');
+    }
+
+    setGame(newGame);
+    setBoard(newGame.board());
+
+    // 4. Handle Giliran AI (Auto Move saat Resume)
+    // Cek giliran dari game yang baru di-load (misal save saat giliran Hitam)
+    const currentTurn = newGame.turn(); // 'w' atau 'b'
+    const playerSide = chosen.charAt(0); // 'w' atau 'b'
+
+    // Jika giliran sekarang bukan giliran player, suruh AI jalan
+    if (currentTurn !== playerSide) {
+       setTimeout(() => makeAIMove(newGame), 800);
     }
   };
 
-  const resetGame = () => {
+  // Ubah resetGame supaya bisa 'pilih-pilih'
+  const resetGame = async (deleteSave = false) => {
     const newGame = new Chess();
     setGame(newGame);
     setBoard(newGame.board());
@@ -170,8 +231,15 @@ export default function ChessGameApp() {
     setGameStatus('');
     setIsThinking(false);
     
-    if (userId) {
-      localStorage.removeItem(`chess_save_${userId}_${currentLevel}`);
+    // Hapus dari database CUMA KALAU diminta (deleteSave = true)
+    if (userId && deleteSave) {
+      await supabase
+        .from('saved_games')
+        .delete()
+        .eq('user_id', userId)
+        .eq('level', currentLevel);
+      
+      showToast('Game di-reset', 'info');
     }
   };
 
@@ -203,27 +271,30 @@ export default function ChessGameApp() {
     showToast(t.moveCanceled, 'info');
   };
   
-  const loadSavedGame = () => {
-    if (!userId) return null;
-    const saved = localStorage.getItem(`chess_save_${userId}_${currentLevel}`);
-    return saved ? JSON.parse(saved) : null;
-  };
-
-  const handleSaveGame = () => {
+  const handleSaveGame = async () => {
     const history = game.history();
     if (!userId || gameStatus || history.length === 0) {
       return;
     }
     
-    const saveData = {
-      fen: game.fen(),
-      level: currentLevel,
-      color: playerColor,
-      timestamp: new Date().toISOString()
-    };
-    
-    localStorage.setItem(`chess_save_${userId}_${currentLevel}`, JSON.stringify(saveData));
-    showToast(t.gameSaved, 'success');
+    try {
+      const { error } = await supabase
+        .from('saved_games')
+        .upsert({ 
+          user_id: userId,
+          fen: game.fen(),
+          pgn: game.pgn(),
+          level: currentLevel,
+          player_color: playerColor,
+          updated_at: new Date().toISOString()
+        });
+
+      if (error) throw error;
+      showToast(t.gameSaved, 'success');
+    } catch (e) {
+      console.error('Save error:', e);
+      showToast('Gagal menyimpan game', 'error');
+    }
   };
 
   const saveGameResult = async (won: boolean) => {
@@ -274,7 +345,9 @@ export default function ChessGameApp() {
         currentGame.move(bestMove);
         playSound('move');
         
-        const newGame = new Chess(currentGame.fen());
+        const newGame = new Chess();
+        newGame.loadPgn(currentGame.pgn());
+
         setGame(newGame);
         setBoard(newGame.board());
         checkGameStatus(newGame);
@@ -313,7 +386,9 @@ export default function ChessGameApp() {
           game.move(move);
           playSound('move');
           
-          const newGame = new Chess(game.fen());
+          const newGame = new Chess();
+          newGame.loadPgn(game.pgn());
+          
           setGame(newGame);
           setBoard(newGame.board());
           setSelectedSquare(null);
@@ -387,18 +462,34 @@ export default function ChessGameApp() {
             </button>
           </div>
 
-          {/* Language Card */}
+          {/* Language Card - NEW DESIGN */}
           <div className="card">
             <h3 className="font-bold text-gray-800 mb-4 text-lg pb-2 border-b border-gray-100 flex items-center gap-2">
-              <IoLanguage className="text-xl text-blue-600" /> Language / Bahasa
+              <IoLanguage className="text-xl text-blue-600" /> {t.language}
             </h3>
-            <button
-              onClick={toggleLanguage}
-              className="w-full py-3 bg-gradient-to-r from-blue-50 to-emerald-50 border-2 border-blue-200 text-blue-700 rounded-2xl font-bold hover:shadow-md transition-all touch-feedback flex items-center justify-center gap-2"
-            >
-              <IoLanguage size={22} />
-              {language === 'id' ? '🇬🇧 Switch to English' : '🇮🇩 Ganti ke Indonesia'}
-            </button>
+            
+            <div className="bg-gray-100 p-1.5 rounded-2xl flex relative">
+              <button
+                onClick={() => language !== 'id' && toggleLanguage()}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all duration-200 touch-feedback ${
+                  language === 'id' 
+                    ? 'bg-white text-blue-600 shadow-sm' 
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <span className="text-lg">🇮🇩</span> Indonesia
+              </button>
+              <button
+                onClick={() => language !== 'en' && toggleLanguage()}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all duration-200 touch-feedback ${
+                  language === 'en' 
+                    ? 'bg-white text-blue-600 shadow-sm' 
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <span className="text-lg">🇬🇧</span> English
+              </button>
+            </div>
           </div>
 
           {/* About Card */}
@@ -463,7 +554,7 @@ export default function ChessGameApp() {
             {t.level} {currentLevel}
           </div>
           <button 
-            onClick={resetGame} 
+            onClick={() => resetGame(true)}
             className="p-2 rounded-xl hover:bg-red-50 text-red-600 flex items-center gap-1 bg-red-50/50 px-3 border border-red-200 transition-colors touch-feedback"
             aria-label="Reset game"
           >
@@ -480,7 +571,7 @@ export default function ChessGameApp() {
                 <GiRobotGolem className="text-2xl" />
               </div>
               <div>
-                <div className="font-bold text-gray-800 leading-tight">AI Computer</div>
+                <div className="font-bold text-gray-800 leading-tight">{t.aiPlayer}</div> {/* Updated */}
                 <div className="text-xs text-gray-500 font-medium h-4">
                   {isThinking ? (
                     <span className="text-blue-600 animate-pulse-slow">{t.aiThinking}</span>
@@ -567,7 +658,7 @@ export default function ChessGameApp() {
               </div>
               <div>
                 <div className="font-bold text-gray-800 leading-tight">{userName.split(' ')[0]}</div>
-                <div className="text-xs text-gray-500 font-medium">{language === 'id' ? 'Kamu' : 'You'}</div>
+                <div className="text-xs text-gray-500 font-medium">{t.youPlayer}</div> {/* Updated */}
               </div>
             </div>
           </div>
@@ -612,7 +703,7 @@ export default function ChessGameApp() {
           <div className="absolute bottom-0 right-0 w-40 h-40 bg-white rounded-full translate-x-1/2 translate-y-1/2"></div>
         </div>
         
-        <div className="absolute top-4 right-4">
+        {/* <div className="absolute top-4 right-4">
           <button
             onClick={toggleLanguage}
             className="p-2 rounded-xl bg-white/20 border border-white/30 text-white hover:bg-white/30 transition-all touch-feedback backdrop-blur-sm"
@@ -620,7 +711,7 @@ export default function ChessGameApp() {
           >
             <IoLanguage size={20} />
           </button>
-        </div>
+        </div> */}
         
         <div className="relative z-10 text-center text-white max-w-lg mx-auto">
           <h1 className="text-3xl md:text-4xl font-bold mb-1 drop-shadow-md flex items-center justify-center gap-2">

@@ -75,26 +75,39 @@ export const LoginCard: React.FC<LoginCardProps> = ({ onLogin, language, onLangu
             {/* Login Button */}
             <button
               onClick={onLogin}
-              className="w-full bg-white border-2 border-gray-200 hover:border-blue-400 hover:shadow-xl text-gray-800 font-bold py-4 px-6 rounded-2xl transition-all flex items-center justify-center gap-3 group mb-4 touch-feedback"
+              className="w-full bg-white border-2 border-gray-200 hover:border-blue-400 hover:shadow-xl text-gray-800 font-bold py-4 px-6 rounded-2xl transition-all flex items-center justify-center gap-3 group mb-6 touch-feedback"
             >
               <FcGoogle className="text-3xl group-hover:scale-110 transition-transform" />
               <span className="text-base">{t.loginButton}</span>
             </button>
 
-            {/* Language Toggle */}
-            <button
-              onClick={onLanguageToggle}
-              className="w-full bg-gradient-to-r from-blue-50 to-emerald-50 border border-blue-200 text-blue-700 font-semibold py-3 px-6 rounded-2xl transition-all hover:shadow-md touch-feedback flex items-center justify-center gap-2"
-            >
-              <IoLanguage size={22} />
-              <span className="text-sm font-bold">
-                {language === 'id' ? '🇬🇧 English' : '🇮🇩 Indonesia'}
-              </span>
-            </button>
+            {/* User Friendly Language Toggle */}
+            <div className="bg-gray-100 p-1.5 rounded-2xl flex relative">
+              <button
+                onClick={() => language === 'en' && onLanguageToggle()}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 ${
+                  language === 'id' 
+                    ? 'bg-white text-blue-600 shadow-sm' 
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <span>🇮🇩</span> Indonesia
+              </button>
+              <button
+                onClick={() => language === 'id' && onLanguageToggle()}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 ${
+                  language === 'en' 
+                    ? 'bg-white text-blue-600 shadow-sm' 
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <span>🇬🇧</span> English
+              </button>
+            </div>
 
             <p className="text-center text-xs text-gray-500 mt-6 flex items-center justify-center gap-1">
               <IoSparkles className="text-emerald-500" size={14} />
-              {language === 'id' ? 'Progress & statistik tersimpan otomatis' : 'Progress & stats auto-saved'}
+              {t.autoSave}
             </p>
           </div>
         </div>

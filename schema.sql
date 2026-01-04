@@ -222,6 +222,23 @@ FROM
   public.user_progress up
   JOIN auth.users u ON up.user_id = u.id;
 
+-- Tabel untuk menyimpan game yang belum selesai (Active Save Slot)
+create table if not exists public.saved_games (
+  user_id uuid references auth.users(id) on delete cascade primary key,
+  fen text not null,
+  pgn text,
+  level integer default 1,
+  updated_at timestamp with time zone default timezone('utc'::text, now())
+);
+
+-- RLS Policies (Agar cuma user ybs yang bisa akses savenya)
+alter table public.saved_games enable row level security;
+
+create policy "Users can manage own saved game"
+  on public.saved_games
+  for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
 
 -- ============================================
 -- 6. INITIAL DATA / SEED
