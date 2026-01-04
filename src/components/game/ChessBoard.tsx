@@ -9,7 +9,7 @@ interface ChessBoardProps {
 }
 
 export const ChessBoard = ({ board, selectedSquare, validMoves, onSquareClick }: ChessBoardProps) => (
-  <div className="aspect-square shadow-2xl rounded-2xl overflow-hidden border-4 border-gray-800">
+  <div className="w-full aspect-square bg-slate-900 rounded-2xl overflow-hidden shadow-2xl border-4 border-slate-800">
     {board.map((row: any, i: number) => (
       <div key={i} className="flex h-[12.5%]">
         {row.map((piece: any, j: number) => {
@@ -24,18 +24,21 @@ export const ChessBoard = ({ board, selectedSquare, validMoves, onSquareClick }:
               onClick={() => onSquareClick(i, j)}
               className={`
                 flex items-center justify-center cursor-pointer transition-all relative w-[12.5%]
-                ${isLight ? 'bg-amber-100' : 'bg-amber-700'}
-                ${isSelected ? 'ring-4 ring-blue-500 ring-inset z-10' : ''}
-                hover:brightness-95
+                ${isLight ? 'bg-slate-300' : 'bg-blue-900'}
+                ${isSelected ? 'ring-4 ring-yellow-400 ring-inset z-10' : ''}
+                ${isValidMove && !piece ? 'hover:bg-blue-700' : ''}
+                ${isValidMove && piece ? 'hover:bg-red-600' : ''}
+                active:scale-95
               `}
             >
               {piece && (
                 <span 
                   className={`
-                    text-5xl select-none pointer-events-none
+                    text-4xl sm:text-5xl select-none pointer-events-none transition-transform
+                    ${isSelected ? 'scale-110' : ''}
                     ${piece.color === 'w' 
-                      ? 'text-white drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]' 
-                      : 'text-gray-900 drop-shadow-[0_1px_1px_rgba(255,255,255,0.3)]'
+                      ? 'text-white drop-shadow-[0_3px_4px_rgba(0,0,0,0.95)]' 
+                      : 'text-slate-900 drop-shadow-[0_2px_3px_rgba(255,255,255,0.5)]'
                     }
                   `}
                 >
@@ -45,10 +48,10 @@ export const ChessBoard = ({ board, selectedSquare, validMoves, onSquareClick }:
               {isValidMove && (
                 <div className={`
                   absolute inset-0 flex items-center justify-center pointer-events-none
-                  ${piece ? 'bg-red-400 bg-opacity-40' : ''}
+                  ${piece ? 'bg-red-500 bg-opacity-40' : ''}
                 `}>
                   {!piece && (
-                    <div className="w-4 h-4 rounded-full bg-blue-500 opacity-70 shadow-lg" />
+                    <div className="w-3 h-3 sm:w-4 sm:h-4 rounded-full bg-yellow-400 opacity-70 shadow-lg" />
                   )}
                 </div>
               )}
