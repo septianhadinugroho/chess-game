@@ -147,47 +147,54 @@ export default function MultiplayerLobby({
     }
   }
 
-  // Di dalam MultiplayerLobby.tsx
+  // Di bagian function joinRoom
+  const joinRoom = async (code: string) => {
+    if (!userId) return; // Udah dijamin ada sama useAuth
+    setLoading(true);
 
-const joinRoom = async (code: string) => {
-  // Gak perlu cek null lagi, karena useAuth di atas MENJAMIN user pasti ada
-  if (!userId) return; 
+    try {
+      // 1. Cari Room
+      const { data: roomData, error: fetchError } = await supabase
+        .from('game_rooms')
+        .select('*')
+        .eq('room_code', code.toUpperCase())
+        .eq('status', 'waiting') // Pastikan status masih waiting
+        .single();
 
-  setLoading(true);
-  try {
-    const { data, error } = await supabase
-      .from('game_rooms')
-      .select('*')
-      .eq('room_code', code.toUpperCase())
-      .eq('status', 'waiting')
-      .single();
+      if (fetchError || !roomData) {
+        alert(language === 'id' ? 'Room tidak ditemukan atau sudah penuh!' : 'Room not found or full!');
+        setLoading(false);
+        return;
+      }
 
-    if (error || !data) {
-      alert(language === 'id' ? 'Room tidak ditemukan!' : 'Room not found!');
-      return;
+      // 2. Cek Host
+      if (roomData.host_user_id === userId) {
+        alert('Gabisa join room sendiri!');
+        setLoading(false);
+        return;
+      }
+
+      // 3. UPDATE Database (Sekarang pasti berhasil karena Constraint udah dicopot)
+      const { error: updateError } = await supabase
+        .from('game_rooms')
+        .update({ 
+          guest_user_id: userId, // ID Text (misal: guest_8a2b1c) masuk lancar
+          status: 'playing'      // Ubah status jadi playing
+        })
+        .eq('id', roomData.id);
+
+      if (updateError) throw updateError;
+
+      // 4. Masuk ke Game
+      onJoinRoom(roomData.id, code.toUpperCase());
+
+    } catch (error) {
+      console.error('Error joining room:', error);
+      alert('Failed to join room.');
+    } finally {
+      setLoading(false);
     }
-
-    if (data.host_user_id === userId) {
-      alert('Gabisa join room sendiri woy!');
-      return;
-    }
-
-    // UPDATE DB dengan ID user yang ASLI
-    await supabase
-      .from('game_rooms')
-      .update({ 
-        guest_user_id: userId, // Ini ID UUID (user_xxxxx) yang konsisten
-        status: 'playing'
-      })
-      .eq('id', data.id);
-
-    onJoinRoom(data.id, code.toUpperCase());
-  } catch (error) {
-    console.error('Error joining room:', error);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const copyToClipboard = (text: string, isLink = false) => {
     navigator.clipboard.writeText(text);
