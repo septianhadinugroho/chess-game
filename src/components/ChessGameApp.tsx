@@ -15,13 +15,18 @@ import { Leaderboard } from '@/components/pages/Leaderboard';
 import { StatsPage } from '@/components/pages/StatsPage';
 import { LevelSelector } from '@/components/menu/LevelSelector';
 import { ColorSelector } from '@/components/menu/ColorSelector';
-import { ChessBoard } from '@/components/game/ChessBoard';
+import ModeSelector from '@/components/menu/ModeSelector';
+import MultiplayerLobby from '@/components/multiplayer/MultiplayerLobby';
+import EnhancedChessBoard from '@/components/game/EnhancedChessBoard';
+import MoveHistory from '@/components/game/MoveHistory';
 import { GameResultModal } from '@/components/game/GameResultModal';
 import { Toast } from '@/components/ui/Toast';
 
 // Icons
-import { IoLogOut, IoArrowBack, IoRefresh, IoArrowUndo, IoSave, IoLogoInstagram, IoLanguage, IoRocket, IoShieldCheckmark, IoSparkles } from 'react-icons/io5';
+import { IoLogOut, IoArrowBack, IoRefresh, IoArrowUndo, IoSave, IoLogoInstagram, IoLanguage, IoRocket, IoShieldCheckmark, IoSparkles, IoList } from 'react-icons/io5';
 import { GiChessKnight, GiRobotGolem } from 'react-icons/gi';
+
+type GameMode = 'ai' | 'multiplayer' | null;
 
 export default function ChessGameApp() {
   const [game, setGame] = useState(new Chess());
@@ -33,6 +38,7 @@ export default function ChessGameApp() {
   const [isThinking, setIsThinking] = useState(false);
   const [gameStatus, setGameStatus] = useState('');
   const [showGame, setShowGame] = useState(false);
+  const [gameMode, setGameMode] = useState<GameMode>(null);
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userName, setUserName] = useState('');
@@ -43,6 +49,20 @@ export default function ChessGameApp() {
   const [language, setLanguage] = useState<Language>('id');
   
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' as 'success' | 'info' | 'warning' | 'error' });
+
+  // Multiplayer states
+  const [currentRoomId, setCurrentRoomId] = useState<string | null>(null);
+  const [showMultiplayerLobby, setShowMultiplayerLobby] = useState(false);
+  
+  // Timer states
+  const [whiteTime, setWhiteTime] = useState(600);
+  const [blackTime, setBlackTime] = useState(600);
+  const [timerActive, setTimerActive] = useState(false);
+  
+  // Move history
+  const [moveHistory, setMoveHistory] = useState<string[]>([]);
+  const [lastMove, setLastMove] = useState<{ from: string; to: string } | null>(null);
+  const [showMoveHistory, setShowMoveHistory] = useState(false);
 
   const engine = new ChessEngine();
   const moveSound = useRef<HTMLAudioElement | null>(null);
@@ -78,6 +98,37 @@ export default function ChessGameApp() {
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  // Timer effect
+  useEffect(() => {
+    if (!timerActive || gameStatus || gameMode !== 'ai') return;
+
+    const interval = setInterval(() => {
+      const currentTurn = game.turn();
+      
+      if (currentTurn === 'w') {
+        setWhiteTime(prev => {
+          if (prev <= 0) {
+            setGameStatus('⏰ Waktu Habis - Hitam Menang!');
+            saveGameResult(false);
+            return 0;
+          }
+          return prev - 1;
+        });
+      } else {
+        setBlackTime(prev => {
+          if (prev <= 0) {
+            setGameStatus('⏰ Waktu Habis - Putih Menang!');
+            saveGameResult(false);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [timerActive, game, gameStatus, gameMode]);
 
   const checkUser = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -138,12 +189,25 @@ export default function ChessGameApp() {
     await supabase.auth.signOut();
     resetGame();
     setShowGame(false);
+    setGameMode(null);
     setActiveTab('home');
   };
 
-  // Update fungsi startGame dengan "FEN Fallback" agar tidak reset ke awal
+  const handleModeSelect = (mode: GameMode) => {
+    setGameMode(mode);
+    if (mode === 'multiplayer') {
+      setShowMultiplayerLobby(true);
+    }
+  };
+
+  const handleJoinRoom = (roomId: string, roomCode: string) => {
+    setCurrentRoomId(roomId);
+    setShowMultiplayerLobby(false);
+    // TODO: Implement multiplayer game screen
+    showToast(`Joined room: ${roomCode}`, 'success');
+  };
+
   const startGame = async (color: 'white' | 'black' | 'random') => {
-    // 1. Cek Save Data
     let savedData = null;
     if (userId) {
       const { data } = await supabase
@@ -155,7 +219,6 @@ export default function ChessGameApp() {
       savedData = data;
     }
 
-    // 2. Tentukan Warna (Prioritas warna dari Save Data)
     let chosen = color === 'random' ? (Math.random() > 0.5 ? 'white' : 'black') : color;
     if (savedData && savedData.player_color) {
       chosen = savedData.player_color;
@@ -163,42 +226,33 @@ export default function ChessGameApp() {
     
     setPlayerColor(chosen);
     setShowGame(true);
+    setTimerActive(true);
+    setMoveHistory([]);
+    setLastMove(null);
 
-    // 3. Setup Board (FIXED LOGIC)
     const newGame = new Chess();
-    // Ini string FEN posisi awal catur
     const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
     
     if (savedData) {
       let loadedSuccessfully = false;
 
-      // Opsi A: Coba Load PGN dulu (biar history Undo ada)
       if (savedData.pgn) {
         try {
           newGame.loadPgn(savedData.pgn);
-          
-          // VALIDASI PENTING (Ini perbaikannya):
-          // Kalau setelah loadPgn papannya masih posisi awal, 
-          // TAPI data FEN di database BUKAN posisi awal, berarti loadPgn GAGAL (cuma header doang).
-          // Kita anggap gagal biar dia lanjut ke Opsi B.
           if (newGame.fen() === START_FEN && savedData.fen !== START_FEN) {
-            console.warn("PGN load menghasilkan papan kosong, beralih ke FEN...");
-            loadedSuccessfully = false; 
+            loadedSuccessfully = false;
           } else {
             loadedSuccessfully = true;
+            setMoveHistory(newGame.history());
           }
         } catch (e) {
-          console.error("Error loading PGN:", e);
           loadedSuccessfully = false;
         }
       }
 
-      // Opsi B: Fallback ke FEN (Posisi Bidak Pasti Benar)
-      // Kalau PGN gagal atau kosong, kita pakai FEN yang akurat dari database
       if (!loadedSuccessfully) {
         try {
           newGame.load(savedData.fen);
-          console.log("Berhasil load via FEN");
         } catch (e) {
           console.error("Error loading FEN:", e);
         }
@@ -210,18 +264,14 @@ export default function ChessGameApp() {
     setGame(newGame);
     setBoard(newGame.board());
 
-    // 4. Handle Giliran AI (Auto Move saat Resume)
-    // Cek giliran dari game yang baru di-load (misal save saat giliran Hitam)
-    const currentTurn = newGame.turn(); // 'w' atau 'b'
-    const playerSide = chosen.charAt(0); // 'w' atau 'b'
+    const currentTurn = newGame.turn();
+    const playerSide = chosen.charAt(0);
 
-    // Jika giliran sekarang bukan giliran player, suruh AI jalan
     if (currentTurn !== playerSide) {
        setTimeout(() => makeAIMove(newGame), 800);
     }
   };
 
-  // Ubah resetGame supaya bisa 'pilih-pilih'
   const resetGame = async (deleteSave = false) => {
     const newGame = new Chess();
     setGame(newGame);
@@ -230,8 +280,12 @@ export default function ChessGameApp() {
     setValidMoves([]);
     setGameStatus('');
     setIsThinking(false);
+    setMoveHistory([]);
+    setLastMove(null);
+    setTimerActive(false);
+    setWhiteTime(600);
+    setBlackTime(600);
     
-    // Hapus dari database CUMA KALAU diminta (deleteSave = true)
     if (userId && deleteSave) {
       await supabase
         .from('saved_games')
@@ -244,20 +298,16 @@ export default function ChessGameApp() {
   };
 
   const handleUndo = () => {
-    // Cek apakah ada move yang bisa di-undo
     const history = game.history();
     
-    // Minimal harus ada 1 move dari player untuk bisa undo
     if (history.length < 1 || isThinking || gameStatus) {
       return;
     }
     
-    // Undo last move (AI's move if exists)
     if (history.length > 0) {
       game.undo();
     }
     
-    // Undo player's last move
     if (history.length > 1) {
       game.undo();
     }
@@ -267,6 +317,8 @@ export default function ChessGameApp() {
     setBoard(newGame.board());
     setValidMoves([]);
     setSelectedSquare(null);
+    setMoveHistory(newGame.history());
+    setLastMove(null);
     
     showToast(t.moveCanceled, 'info');
   };
@@ -342,6 +394,9 @@ export default function ChessGameApp() {
       const bestMove = engine.getBestMove(currentGame, aiConfig.depth, playerColor === 'black');
       
       if (bestMove) {
+        const from = bestMove.from;
+        const to = bestMove.to;
+        
         currentGame.move(bestMove);
         playSound('move');
         
@@ -350,6 +405,8 @@ export default function ChessGameApp() {
 
         setGame(newGame);
         setBoard(newGame.board());
+        setMoveHistory(newGame.history());
+        setLastMove({ from, to });
         checkGameStatus(newGame);
       }
       setIsThinking(false);
@@ -362,9 +419,11 @@ export default function ChessGameApp() {
                        (chess.turn() === 'w' && playerColor === 'black');
       setGameStatus(playerWon ? `🎉 ${t.youWin}` : `💀 ${t.youLose}`);
       saveGameResult(playerWon);
+      setTimerActive(false);
     } else if (chess.isDraw()) {
       setGameStatus(`🤝 ${t.draw}`);
       saveGameResult(false);
+      setTimerActive(false);
     }
   };
 
@@ -383,6 +442,7 @@ export default function ChessGameApp() {
         const valid = game.moves({ verbose: true }).find(m => m.from === selectedSquare && m.to === square);
         
         if (valid) {
+          const from = selectedSquare;
           game.move(move);
           playSound('move');
           
@@ -393,6 +453,8 @@ export default function ChessGameApp() {
           setBoard(newGame.board());
           setSelectedSquare(null);
           setValidMoves([]);
+          setMoveHistory(newGame.history());
+          setLastMove({ from, to: square });
           
           checkGameStatus(newGame);
           if (!newGame.isGameOver()) makeAIMove(newGame);
@@ -421,6 +483,21 @@ export default function ChessGameApp() {
     return <LoginCard onLogin={handleLogin} language={language} onLanguageToggle={toggleLanguage} />;
   }
 
+  // Multiplayer Lobby
+  if (showMultiplayerLobby && gameMode === 'multiplayer') {
+    return (
+      <MultiplayerLobby
+        userId={userId || ''}
+        language={language}
+        onJoinRoom={handleJoinRoom}
+        onBack={() => {
+          setShowMultiplayerLobby(false);
+          setGameMode(null);
+        }}
+      />
+    );
+  }
+
   // Settings Page
   if (activeTab === 'settings') {
     return (
@@ -440,7 +517,6 @@ export default function ChessGameApp() {
         </div>
 
         <div className="max-w-lg mx-auto px-4 space-y-4 animate-slide-up">
-          {/* Account Card */}
           <div className="card">
             <h3 className="font-bold text-gray-800 mb-4 text-lg pb-2 border-b border-gray-100 flex items-center gap-2">
               <GiChessKnight className="text-xl text-blue-600" /> {t.googleAccount}
@@ -462,7 +538,6 @@ export default function ChessGameApp() {
             </button>
           </div>
 
-          {/* Language Card - NEW DESIGN */}
           <div className="card">
             <h3 className="font-bold text-gray-800 mb-4 text-lg pb-2 border-b border-gray-100 flex items-center gap-2">
               <IoLanguage className="text-xl text-blue-600" /> {t.language}
@@ -492,10 +567,9 @@ export default function ChessGameApp() {
             </div>
           </div>
 
-          {/* About Card */}
           <div className="card text-center">
             <h3 className="font-bold text-gray-800 mb-2 text-lg">{t.aboutApp}</h3>
-            <p className="text-gray-500 mb-4 text-sm">{t.appVersion}</p>
+            <p className="text-gray-500 mb-4 text-sm">Chess Master V2.0</p>
             <div className="border-t border-gray-100 pt-4 mt-2">
               <p className="text-xs text-gray-400 mb-1 uppercase tracking-widest">{t.builtBy}</p>
               <p className="font-bold text-blue-600 text-xl mb-3">Septian Hadi Nugroho</p>
@@ -517,12 +591,10 @@ export default function ChessGameApp() {
     );
   }
 
-  // Game Screen
-  if (showGame) {
+  // Game Screen (AI Mode)
+  if (showGame && gameMode === 'ai') {
     const history = game.history();
-    // Undo bisa dilakukan jika ada minimal 1 move dan game belum selesai
     const canUndo = history.length >= 1 && !isThinking && !gameStatus;
-    // Save bisa dilakukan jika ada move dan game belum selesai
     const canSave = history.length > 0 && !gameStatus && !isThinking;
     
     return (
@@ -536,16 +608,15 @@ export default function ChessGameApp() {
         <GameResultModal 
           status={gameStatus} 
           onReset={resetGame} 
-          onHome={() => { setShowGame(false); resetGame(); }} 
+          onHome={() => { setShowGame(false); setGameMode(null); resetGame(); }} 
           language={language} 
         />
 
         {/* Header */}
         <div className="bg-white border-b border-gray-200 shadow-sm px-4 py-3 flex justify-between items-center sticky top-0 z-30">
           <button 
-            onClick={() => { setShowGame(false); resetGame(); }} 
+            onClick={() => { setShowGame(false); setGameMode(null); resetGame(); }} 
             className="p-2 rounded-xl hover:bg-gray-100 text-gray-700 transition-colors touch-feedback"
-            aria-label="Back to menu"
           >
             <IoArrowBack size={24} />
           </button>
@@ -553,13 +624,24 @@ export default function ChessGameApp() {
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse-slow"></span>
             {t.level} {currentLevel}
           </div>
-          <button 
-            onClick={() => resetGame(true)}
-            className="p-2 rounded-xl hover:bg-red-50 text-red-600 flex items-center gap-1 bg-red-50/50 px-3 border border-red-200 transition-colors touch-feedback"
-            aria-label="Reset game"
-          >
-            <IoRefresh size={18} /> <span className="text-xs font-bold">{t.reset}</span>
-          </button>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => setShowMoveHistory(!showMoveHistory)}
+              className={`p-2 rounded-xl flex items-center gap-1 px-3 border transition-colors touch-feedback ${
+                showMoveHistory
+                  ? 'bg-blue-500 text-white border-blue-500'
+                  : 'hover:bg-blue-50 text-blue-600 border-blue-200'
+              }`}
+            >
+              <IoList size={18} />
+            </button>
+            <button 
+              onClick={() => resetGame(true)}
+              className="p-2 rounded-xl hover:bg-red-50 text-red-600 flex items-center gap-1 bg-red-50/50 px-3 border border-red-200 transition-colors touch-feedback"
+            >
+              <IoRefresh size={18} /> <span className="text-xs font-bold">{t.reset}</span>
+            </button>
+          </div>
         </div>
 
         {/* Main Game Area */}
@@ -571,7 +653,7 @@ export default function ChessGameApp() {
                 <GiRobotGolem className="text-2xl" />
               </div>
               <div>
-                <div className="font-bold text-gray-800 leading-tight">{t.aiPlayer}</div> {/* Updated */}
+                <div className="font-bold text-gray-800 leading-tight">{t.aiPlayer}</div>
                 <div className="text-xs text-gray-500 font-medium h-4">
                   {isThinking ? (
                     <span className="text-blue-600 animate-pulse-slow">{t.aiThinking}</span>
@@ -583,13 +665,22 @@ export default function ChessGameApp() {
             </div>
           </div>
 
+          {/* Move History Sidebar */}
+          {showMoveHistory && (
+            <div className="mb-4">
+              <MoveHistory moves={moveHistory} language={language} compact />
+            </div>
+          )}
+
           {/* Chess Board */}
-          <ChessBoard
+          <EnhancedChessBoard
             board={board}
             orientation={playerColor === 'black' ? 'black' : 'white'}
             selectedSquare={selectedSquare}
             validMoves={validMoves}
             onSquareClick={handleSquareClick}
+            lastMove={lastMove}
+            showTimer={false}
           />
 
           {/* Game Status */}
@@ -622,129 +713,138 @@ export default function ChessGameApp() {
 
           {/* Control Buttons */}
           <div className="grid grid-cols-2 gap-3 mt-auto mb-4">
-            <button 
-              onClick={handleUndo} 
+            <button
+              onClick={handleUndo}
               disabled={!canUndo}
-              className={`flex flex-col items-center justify-center gap-1 p-4 rounded-2xl shadow-sm transition-all ${
+              className={`py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all touch-feedback ${
                 canUndo
-                  ? 'bg-gradient-to-br from-blue-50 to-cyan-50 border-2 border-blue-200 text-blue-600 hover:shadow-md touch-feedback'
-                  : 'bg-gray-100 border-2 border-gray-200 text-gray-400 cursor-not-allowed'
+                  ? 'bg-white text-gray-700 border-2 border-gray-200 hover:border-gray-300 shadow-sm'
+                  : 'bg-gray-100 text-gray-400 border-2 border-transparent'
               }`}
-              aria-label="Undo move"
             >
-              <IoArrowUndo size={24} />
-              <span className="text-xs font-bold">{t.undo}</span>
+              <IoArrowUndo size={20} />
+              {t.undo}
             </button>
-            
-            <button 
-              onClick={handleSaveGame} 
+            <button
+              onClick={handleSaveGame}
               disabled={!canSave}
-              className={`flex flex-col items-center justify-center gap-1 p-4 rounded-2xl shadow-sm transition-all ${
+              className={`py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all touch-feedback ${
                 canSave
-                  ? 'bg-gradient-to-br from-emerald-50 to-green-50 border-2 border-emerald-200 text-emerald-600 hover:shadow-md touch-feedback'
-                  : 'bg-gray-100 border-2 border-gray-200 text-gray-400 cursor-not-allowed'
+                  ? 'bg-white text-blue-600 border-2 border-blue-100 hover:border-blue-200 shadow-sm'
+                  : 'bg-gray-100 text-gray-400 border-2 border-transparent'
               }`}
-              aria-label="Save game"
             >
-              <IoSave size={24} />
-              <span className="text-xs font-bold">{t.save}</span>
+              <IoSave size={20} />
+              {t.saveGame}
             </button>
-          </div>
-
-          {/* Human Player Info */}
-          <div className="flex justify-between items-center mt-2 px-1">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-emerald-500 text-white flex items-center justify-center shadow-lg">
-                <GiChessKnight className="text-2xl" />
-              </div>
-              <div>
-                <div className="font-bold text-gray-800 leading-tight">{userName.split(' ')[0]}</div>
-                <div className="text-xs text-gray-500 font-medium">{t.youPlayer}</div> {/* Updated */}
-              </div>
-            </div>
           </div>
         </div>
       </div>
     );
   }
 
-  // Other tabs
-  if(activeTab === 'leaderboard') {
+  // Leaderboard Tab
+  if (activeTab === 'leaderboard') {
     return (
-      <div className="min-h-screen">
-        <Leaderboard currentUserId={userId || ''} language={language} />
-        <BottomNav activeTab={activeTab} onTabChange={setActiveTab} language={language} />
-      </div>
-    );
-  }
-  
-  if(activeTab === 'stats') {
-    return (
-      <div className="min-h-screen">
-        <StatsPage userId={userId || ''} progress={progress} language={language} />
+      <div className="min-h-screen pb-20 bg-gradient-to-br from-blue-50 via-white to-emerald-50">
+        <Leaderboard userId={userId} language={language} />
         <BottomNav activeTab={activeTab} onTabChange={setActiveTab} language={language} />
       </div>
     );
   }
 
-  // Home Screen
+  // Stats Tab
+  if (activeTab === 'stats') {
+    return (
+      <div className="min-h-screen pb-20 bg-gradient-to-br from-blue-50 via-white to-emerald-50">
+        <StatsPage userId={userId} language={language} />
+        <BottomNav activeTab={activeTab} onTabChange={setActiveTab} language={language} />
+      </div>
+    );
+  }
+
+  // Default: Home Tab
   return (
-    <div className="min-h-screen pb-24 bg-gradient-to-br from-blue-50 via-white to-emerald-50">
+    <div className="min-h-screen pb-20 bg-gradient-to-br from-blue-50 via-white to-emerald-50">
       <Toast 
         message={toast.message} 
         show={toast.show} 
         type={toast.type}
         onHide={() => setToast({ ...toast, show: false })} 
       />
-      
-      {/* Header */}
-      <div className="bg-gradient-to-br from-blue-500 to-emerald-500 p-6 md:p-8 rounded-b-[2.5rem] shadow-xl relative overflow-hidden">
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-0 left-0 w-32 h-32 bg-white rounded-full -translate-x-1/2 -translate-y-1/2"></div>
-          <div className="absolute bottom-0 right-0 w-40 h-40 bg-white rounded-full translate-x-1/2 translate-y-1/2"></div>
-        </div>
+
+      {/* Home Header */}
+      <div className="bg-white p-6 pb-8 rounded-b-[2.5rem] shadow-sm mb-6 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-blue-50 rounded-full -mr-32 -mt-32 opacity-50 pointer-events-none"></div>
+        <div className="absolute bottom-0 left-0 w-48 h-48 bg-emerald-50 rounded-full -ml-24 -mb-24 opacity-50 pointer-events-none"></div>
         
-        {/* <div className="absolute top-4 right-4">
-          <button
-            onClick={toggleLanguage}
-            className="p-2 rounded-xl bg-white/20 border border-white/30 text-white hover:bg-white/30 transition-all touch-feedback backdrop-blur-sm"
-            aria-label="Change language"
-          >
-            <IoLanguage size={20} />
-          </button>
-        </div> */}
-        
-        <div className="relative z-10 text-center text-white max-w-lg mx-auto">
-          <h1 className="text-3xl md:text-4xl font-bold mb-1 drop-shadow-md flex items-center justify-center gap-2">
-            {t.greeting}, {userName.split(' ')[0]}! <IoSparkles className="text-yellow-300 animate-bounce-slow" />
-          </h1>
-          <p className="text-blue-100 text-sm mb-6 font-medium">{t.readyMessage}</p>
-          
-          <div className="grid grid-cols-2 gap-3 max-w-xs mx-auto">
-            <div className="bg-white/20 backdrop-blur-md rounded-2xl border border-white/30 p-4 shadow-lg">
-              <div className="text-xs text-blue-100 uppercase tracking-wider font-bold mb-1">{t.level}</div>
-              <div className="text-3xl font-black text-white leading-none">{progress.highestLevel}</div>
+        <div className="relative">
+          <div className="flex justify-between items-start mb-4">
+            <div>
+              <p className="text-gray-500 text-sm font-medium mb-1">{language === 'id' ? 'Selamat Datang,' : 'Welcome,'}</p>
+              <h1 className="text-2xl font-bold text-gray-800">
+                {isLoggedIn ? userName.split(' ')[0] : 'Guest'} 👋
+              </h1>
             </div>
-            <div className="bg-white/20 backdrop-blur-md rounded-2xl border border-white/30 p-4 shadow-lg">
-              <div className="text-xs text-blue-100 uppercase tracking-wider font-bold mb-1">{t.wins}</div>
-              <div className="text-3xl font-black text-white leading-none">{progress.gamesWon}</div>
+            <div className="bg-gradient-to-br from-blue-500 to-emerald-500 text-white px-4 py-2 rounded-2xl shadow-lg flex flex-col items-center">
+              <span className="text-xs font-medium opacity-90">{t.level}</span>
+              <span className="text-xl font-bold">{progress.highestLevel}</span>
+            </div>
+          </div>
+          
+          {/* Quick Stats Card */}
+          <div className="bg-gray-50 rounded-2xl p-4 flex justify-between items-center border border-gray-100">
+            <div className="text-center flex-1 border-r border-gray-200">
+              <p className="text-xs text-gray-500 mb-1">{language === 'id' ? 'Main' : 'Played'}</p>
+              <p className="font-bold text-gray-800 text-lg">{progress.gamesPlayed}</p>
+            </div>
+            <div className="text-center flex-1">
+              <p className="text-xs text-gray-500 mb-1">{language === 'id' ? 'Menang' : 'Won'}</p>
+              <p className="font-bold text-emerald-600 text-lg">{progress.gamesWon}</p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="max-w-lg mx-auto px-4 -mt-6 relative z-20 space-y-4 animate-slide-up">
-        <LevelSelector
-          currentLevel={currentLevel}
-          highestLevel={progress.highestLevel}
-          onSelectLevel={setCurrentLevel}
-          language={language}
-        />
-        
-        <div id="color-selector-section">
-          <ColorSelector onSelectColor={startGame} language={language} />
-        </div>
+      <div className="px-4 pb-4 animate-slide-up">
+        {!gameMode ? (
+          /* Mode Selector (AI / Multiplayer) */
+          <ModeSelector onSelectMode={handleModeSelect} language={language} />
+        ) : gameMode === 'ai' ? (
+          /* AI Setup Menu */
+          <div className="space-y-6">
+            <div className="flex items-center gap-2 mb-2">
+              <button 
+                onClick={() => setGameMode(null)}
+                className="p-2 rounded-xl hover:bg-white hover:shadow-sm transition-all text-gray-600"
+              >
+                <IoArrowBack size={24} />
+              </button>
+              <h2 className="text-xl font-bold text-gray-800">{language === 'id' ? 'Setup Permainan' : 'Game Setup'}</h2>
+            </div>
+
+            <LevelSelector 
+              currentLevel={currentLevel} 
+              onSelectLevel={setCurrentLevel} 
+              highestLevel={progress.highestLevel}
+              language={language}
+            />
+            
+            <ColorSelector 
+              selectedColor={playerColor || 'random'} 
+              onSelectColor={(c) => setPlayerColor(c as any)} 
+              language={language}
+            />
+            
+            <button
+              onClick={() => startGame(playerColor || 'random')}
+              className="w-full bg-gradient-to-r from-blue-600 to-emerald-600 text-white font-bold py-4 rounded-2xl shadow-lg shadow-blue-200 hover:shadow-xl hover:scale-[1.02] transition-all active:scale-[0.98] flex items-center justify-center gap-3"
+            >
+              <IoRocket size={24} />
+              {language === 'id' ? 'Mulai Permainan' : 'Start Game'}
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <BottomNav activeTab={activeTab} onTabChange={setActiveTab} language={language} />
