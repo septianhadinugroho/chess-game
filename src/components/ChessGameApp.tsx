@@ -105,9 +105,9 @@ export default function ChessGameApp() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Timer effect
+  // Timer effect (FIXED)
   useEffect(() => {
-    if (!timerActive || gameStatus || gameMode !== 'ai') return;
+    if (!timerActive || gameStatus) return;
 
     const interval = setInterval(() => {
       const currentTurn = game.turn();
@@ -134,7 +134,7 @@ export default function ChessGameApp() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [timerActive, game, gameStatus, gameMode]);
+  }, [timerActive, game, gameStatus]); // Hapus gameMode dari dependency juga
 
   // --- MULTIPLAYER LOGIC (Sync, Timer, Pause) ---
   useEffect(() => {
