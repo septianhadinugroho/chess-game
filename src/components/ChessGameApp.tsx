@@ -34,6 +34,7 @@ type GameMode = 'ai' | 'multiplayer' | null;
 export default function ChessGameApp() {
   // --- STATE MANAGEMENT ---
   const [game, setGame] = useState(new Chess());
+  const gameRef = useRef(game);
   const [board, setBoard] = useState(game.board());
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
   const [validMoves, setValidMoves] = useState<any[]>([]);
@@ -152,23 +153,23 @@ export default function ChessGameApp() {
     return () => clearInterval(interval);
   }, [timerActive, game, gameStatus, whiteTime, blackTime, playerColor, gameMode]);
 
-  // --- MULTIPLAYER LOGIC (Sync, Timer, Pause) ---
+  // --- MULTIPLAYER LOGIC (Fixed Stale Closure & Board Sync) ---
   useEffect(() => {
     if (!currentRoomId || gameMode !== 'multiplayer') return;
 
+    // 1. Fetch Awal
     const fetchRoomData = async () => {
       const { data: room } = await supabase.from('game_rooms').select('*').eq('id', currentRoomId).single();
       if (room) {
         const newGame = new Chess(room.current_fen);
         setGame(newGame);
         setBoard(newGame.board());
-        setMoveHistory(newGame.history());
-        // Sync Timer
+        setMoveHistory(newGame.history()); // Note: History mungkin kosong kalau reload, tapi posisi aman.
+        
         setWhiteTime(room.white_time_left);
         setBlackTime(room.black_time_left);
         setTimerActive(room.status === 'playing' && !room.is_paused);
         
-        // Warna pemain
         const myColor = userId === room.host_user_id ? room.host_color : (room.host_color === 'white' ? 'black' : 'white');
         setPlayerColor(myColor);
         setShowGame(true);
@@ -177,50 +178,62 @@ export default function ChessGameApp() {
 
     fetchRoomData();
 
-    // Channel Realtime: Moves + Status Change (Pause/Resume/End)
+    // 2. Realtime Listener
     const channel = supabase
       .channel(`room_game_${currentRoomId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'game_rooms', filter: `id=eq.${currentRoomId}` }, (payload) => {
         const newRoom = payload.new as any;
         if (newRoom) {
-          // SYNC TIMER DARI DB (PENTING!)
-          // Timpa waktu lokal dengan waktu server setiap ada update langkah
+          // A. SYNC BOARD (KUNCI PERBAIKAN STUCK)
+          // Kita cek pake gameRef.current biar datanya GAK BASI
+          if (newRoom.current_fen && newRoom.current_fen !== gameRef.current.fen()) {
+             const newGame = new Chess(newRoom.current_fen);
+             setGame(newGame);
+             setBoard(newGame.board());
+             // Opsional: Bunyiin suara kalo FEN berubah (berarti ada yg jalan)
+             playSound('move');
+             checkGameStatus(newGame);
+          }
+
+          // B. SYNC TIMER
           if (newRoom.white_time_left !== null) setWhiteTime(newRoom.white_time_left);
           if (newRoom.black_time_left !== null) setBlackTime(newRoom.black_time_left);
-          
           setTimerActive(newRoom.status === 'playing' && !newRoom.is_paused);
           
-          // Handle Game Over dari lawan
-          if (newRoom.status === 'finished' && !gameStatus) {
-             if (newRoom.winner_id === userId) {
-                setGameStatus('🏆 Kamu Menang! (Lawan Resign/Timeout)');
-                playSound('win');
-             } else if (newRoom.winner_id) {
-                setGameStatus('💀 Kamu Kalah!');
-                playSound('lose');
-             } else {
-                setGameStatus('Game Over');
-             }
+          // C. HANDLE GAME OVER
+          if (newRoom.status === 'finished') {
              setTimerActive(false);
+             if (!gameStatus) { // Cek biar gak spam alert
+                if (newRoom.winner_id === userId) {
+                   setGameStatus('🏆 KAMU MENANG!');
+                   playSound('win');
+                } else if (newRoom.winner_id) {
+                   setGameStatus('💀 KAMU KALAH!');
+                   playSound('lose');
+                } else {
+                   setGameStatus('🏁 GAME OVER');
+                }
+             }
           }
         }
       })
+      // Kita tetep dengerin game_moves buat history (kalau masuk)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'game_moves', filter: `room_id=eq.${currentRoomId}` }, (payload) => {
         const moveData = payload.new;
-        if (moveData.player_id !== userId) {
-          const newGame = new Chess(moveData.fen);
-          setGame(newGame);
-          setBoard(newGame.board());
-          setMoveHistory(newGame.history());
-          setLastMove({ from: moveData.from_square, to: moveData.to_square });
-          playSound('move');
-          checkGameStatus(newGame);
+        // Pake gameRef.current buat validasi
+        if (moveData.player_id !== userId && moveData.fen !== gameRef.current.fen()) {
+           // Logic update sudah dihandle di game_rooms listener di atas, 
+           // tapi ini bisa buat backup history kalau mau detail.
         }
       })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [currentRoomId, gameMode, userId]);
+  }, [currentRoomId, gameMode, userId]); // Dependencies tetep, game gak perlu masuk sini.
+
+  useEffect(() => {
+    gameRef.current = game;
+  }, [game]);
 
   // --- HELPER FUNCTIONS ---
 
