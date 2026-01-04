@@ -1,5 +1,7 @@
 import React from 'react';
-import { GiRobotGolem, GiTwoShadows, IoSparkles, IoGlobe } from 'react-icons/io5';
+// import { GiRobotGolem, GiTwoShadows, IoSparkles, IoGlobe } from 'react-icons/io5';
+import { GiRobotGolem, GiTwoShadows } from 'react-icons/gi';
+import { IoSparkles, IoGlobe } from 'react-icons/io5';
 import { translations, Language } from '@/lib/language';
 
 interface ModeSelectorProps {
