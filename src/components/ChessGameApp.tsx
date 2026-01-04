@@ -7,6 +7,8 @@ import { ChessEngine } from '@/lib/chess-engine';
 import { AI_LEVELS } from '@/constants/game-config';
 import { getSquareNotation } from '@/utils/helpers';
 import { translations, Language } from '@/lib/language';
+
+// Components
 import { LoginCard } from '@/components/auth/LoginCard';
 import { BottomNav } from '@/components/layout/BottomNav';
 import { Leaderboard } from '@/components/pages/Leaderboard';
@@ -14,54 +16,12 @@ import { StatsPage } from '@/components/pages/StatsPage';
 import { LevelSelector } from '@/components/menu/LevelSelector';
 import { ColorSelector } from '@/components/menu/ColorSelector';
 import { ChessBoard } from '@/components/game/ChessBoard';
-import { IoLogOut, IoArrowBack, IoRefresh, IoArrowUndo, IoSave, IoLogoInstagram, IoCheckmark, IoLanguage } from 'react-icons/io5';
+import { GameResultModal } from '@/components/game/GameResultModal';
+import { Toast } from '@/components/ui/Toast';
 
-const GameResultModal = ({ status, onReset, onHome, language }: any) => {
-  if (!status) return null;
-  const t = translations[language];
-  const isWin = status.includes(t.youWin);
-  
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
-      <div className="bg-slate-800 border border-slate-700 rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl animate-pop-in">
-        <div className="text-6xl mb-4">{isWin ? '🏆' : '😢'}</div>
-        <h2 className={`text-3xl font-bold mb-2 ${isWin ? 'text-blue-400' : 'text-slate-400'}`}>
-          {isWin ? t.victory : t.defeat}
-        </h2>
-        <p className="text-slate-300 mb-8 font-medium">{status}</p>
-        
-        <div className="space-y-3">
-          <button onClick={onReset} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold transition-all shadow-lg active:scale-95">
-            {t.playAgain}
-          </button>
-          <button onClick={onHome} className="w-full bg-slate-700 hover:bg-slate-600 text-slate-200 py-3 rounded-xl font-bold transition-all active:scale-95">
-            {t.backToMenu}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const Toast = ({ message, show, onHide }: { message: string; show: boolean; onHide: () => void }) => {
-  useEffect(() => {
-    if (show) {
-      const timer = setTimeout(onHide, 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [show, onHide]);
-
-  if (!show) return null;
-
-  return (
-    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 animate-slide-up">
-      <div className="bg-blue-600 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-2">
-        <IoCheckmark size={20} />
-        <span className="font-medium">{message}</span>
-      </div>
-    </div>
-  );
-};
+// Icons
+import { IoLogOut, IoArrowBack, IoRefresh, IoArrowUndo, IoSave, IoLogoInstagram, IoLanguage, IoRocket, IoShieldCheckmark, IoSparkles } from 'react-icons/io5';
+import { GiChessKnight, GiRobotGolem } from 'react-icons/gi';
 
 export default function ChessGameApp() {
   const [game, setGame] = useState(new Chess());
@@ -82,7 +42,7 @@ export default function ChessGameApp() {
   const [progress, setProgress] = useState<any>({ highestLevel: 1, gamesWon: 0, gamesPlayed: 0 });
   const [language, setLanguage] = useState<Language>('id');
   
-  const [toast, setToast] = useState({ show: false, message: '' });
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' as 'success' | 'info' | 'warning' | 'error' });
 
   const engine = new ChessEngine();
   const moveSound = useRef<HTMLAudioElement | null>(null);
@@ -153,8 +113,8 @@ export default function ChessGameApp() {
     localStorage.setItem('chess_language', newLang);
   };
 
-  const showToast = (message: string) => {
-    setToast({ show: true, message });
+  const showToast = (message: string, type: 'success' | 'info' | 'warning' | 'error' = 'success') => {
+    setToast({ show: true, message, type });
   };
 
   const playSound = (type: 'move' | 'win' | 'lose') => {
@@ -191,7 +151,7 @@ export default function ChessGameApp() {
       const newGame = new Chess(saved.fen);
       setGame(newGame);
       setBoard(newGame.board());
-      showToast(t.gameLoaded);
+      showToast(t.gameLoaded, 'info');
     } else {
       resetGame();
     }
@@ -216,13 +176,21 @@ export default function ChessGameApp() {
   };
 
   const handleUndo = () => {
+    // Cek apakah ada move yang bisa di-undo
     const history = game.history();
-    if (history.length < 2 || isThinking || gameStatus) {
+    
+    // Minimal harus ada 1 move dari player untuk bisa undo
+    if (history.length < 1 || isThinking || gameStatus) {
       return;
     }
     
-    game.undo();
-    if (game.history().length > 0) {
+    // Undo last move (AI's move if exists)
+    if (history.length > 0) {
+      game.undo();
+    }
+    
+    // Undo player's last move
+    if (history.length > 1) {
       game.undo();
     }
     
@@ -232,7 +200,7 @@ export default function ChessGameApp() {
     setValidMoves([]);
     setSelectedSquare(null);
     
-    showToast(t.moveCanceled);
+    showToast(t.moveCanceled, 'info');
   };
   
   const loadSavedGame = () => {
@@ -255,7 +223,7 @@ export default function ChessGameApp() {
     };
     
     localStorage.setItem(`chess_save_${userId}_${currentLevel}`, JSON.stringify(saveData));
-    showToast(t.gameSaved);
+    showToast(t.gameSaved, 'success');
   };
 
   const saveGameResult = async (won: boolean) => {
@@ -374,115 +342,157 @@ export default function ChessGameApp() {
     }
   };
 
-  if (!isLoggedIn) return <LoginCard onLogin={handleLogin} language={language} onLanguageToggle={toggleLanguage} />;
+  if (!isLoggedIn) {
+    return <LoginCard onLogin={handleLogin} language={language} onLanguageToggle={toggleLanguage} />;
+  }
 
+  // Settings Page
   if (activeTab === 'settings') {
     return (
-      <div className="min-h-screen pb-20 bg-slate-900">
-        <Toast message={toast.message} show={toast.show} onHide={() => setToast({ ...toast, show: false })} />
+      <div className="min-h-screen pb-20 bg-gradient-to-br from-blue-50 via-white to-emerald-50">
+        <Toast 
+          message={toast.message} 
+          show={toast.show} 
+          type={toast.type}
+          onHide={() => setToast({ ...toast, show: false })} 
+        />
         
-        <div className="bg-linear-to-br from-blue-900 to-blue-950 p-8 rounded-b-3xl shadow-lg mb-6">
-          <h1 className="text-2xl font-bold text-white mb-2">{t.settings}</h1>
-          <p className="text-blue-200 text-sm">{t.manageAccount}</p>
+        <div className="bg-gradient-to-br from-gray-500 to-gray-600 p-8 shadow-lg mb-6">
+          <div className="max-w-lg mx-auto text-center text-white">
+            <h1 className="text-3xl font-bold mb-2 drop-shadow-md">{t.settings}</h1>
+            <p className="text-sm text-gray-100 font-medium">{t.manageAccount}</p>
+          </div>
         </div>
 
-        <div className="px-4 space-y-4 animate-slide-up">
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-sm">
-            <h3 className="font-bold text-slate-100 mb-4 text-lg border-b border-slate-700 pb-2">{t.googleAccount}</h3>
+        <div className="max-w-lg mx-auto px-4 space-y-4 animate-slide-up">
+          {/* Account Card */}
+          <div className="card">
+            <h3 className="font-bold text-gray-800 mb-4 text-lg pb-2 border-b border-gray-100 flex items-center gap-2">
+              <GiChessKnight className="text-xl text-blue-600" /> {t.googleAccount}
+            </h3>
             <div className="flex items-center gap-4 mb-6">
-              <div className="w-12 h-12 bg-blue-600/20 rounded-full flex items-center justify-center text-xl text-blue-400 border border-blue-600/30">
-                👤
+              <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-emerald-500 rounded-2xl flex items-center justify-center shadow-lg">
+                <GiChessKnight className="text-3xl text-white" />
               </div>
               <div className="flex-1 overflow-hidden">
-                <div className="font-bold text-slate-100 truncate">{userName}</div>
-                <div className="text-sm text-slate-400 truncate">{userEmail}</div>
+                <div className="font-bold text-gray-800 truncate text-lg">{userName}</div>
+                <div className="text-sm text-gray-500 truncate">{userEmail}</div>
               </div>
             </div>
-            <button onClick={handleLogout} className="w-full py-3 border-2 border-red-600/30 bg-red-600/10 text-red-400 rounded-xl font-bold hover:bg-red-600/20 transition-all active:scale-95 flex items-center justify-center gap-2">
+            <button 
+              onClick={handleLogout} 
+              className="w-full py-3 bg-gradient-to-r from-red-500 to-pink-500 text-white rounded-2xl font-bold hover:shadow-xl transition-all touch-feedback flex items-center justify-center gap-2"
+            >
               <IoLogOut size={20} /> {t.logout}
             </button>
           </div>
 
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-sm">
-            <h3 className="font-bold text-slate-100 mb-4 text-lg border-b border-slate-700 pb-2">Language / Bahasa</h3>
+          {/* Language Card */}
+          <div className="card">
+            <h3 className="font-bold text-gray-800 mb-4 text-lg pb-2 border-b border-gray-100 flex items-center gap-2">
+              <IoLanguage className="text-xl text-blue-600" /> Language / Bahasa
+            </h3>
             <button
               onClick={toggleLanguage}
-              className="w-full py-3 bg-blue-600/20 border-2 border-blue-600/30 text-blue-400 rounded-xl font-bold hover:bg-blue-600/30 transition-all active:scale-95 flex items-center justify-center gap-2"
+              className="w-full py-3 bg-gradient-to-r from-blue-50 to-emerald-50 border-2 border-blue-200 text-blue-700 rounded-2xl font-bold hover:shadow-md transition-all touch-feedback flex items-center justify-center gap-2"
             >
-              <IoLanguage size={20} />
+              <IoLanguage size={22} />
               {language === 'id' ? '🇬🇧 Switch to English' : '🇮🇩 Ganti ke Indonesia'}
             </button>
           </div>
 
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-sm text-center">
-            <h3 className="font-bold text-slate-100 mb-2">{t.aboutApp}</h3>
-            <p className="text-slate-400 mb-4 text-sm">{t.appVersion}</p>
-            <div className="border-t border-slate-700 pt-4 mt-2">
-              <p className="text-xs text-slate-500 mb-1 uppercase tracking-widest">{t.builtBy}</p>
-              <p className="font-bold text-blue-400 text-lg mb-3">Septian Hadi Nugroho</p>
+          {/* About Card */}
+          <div className="card text-center">
+            <h3 className="font-bold text-gray-800 mb-2 text-lg">{t.aboutApp}</h3>
+            <p className="text-gray-500 mb-4 text-sm">{t.appVersion}</p>
+            <div className="border-t border-gray-100 pt-4 mt-2">
+              <p className="text-xs text-gray-400 mb-1 uppercase tracking-widest">{t.builtBy}</p>
+              <p className="font-bold text-blue-600 text-xl mb-3">Septian Hadi Nugroho</p>
               <a 
                 href="https://instagram.com/septianhnr" 
                 target="_blank" 
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 text-pink-400 font-semibold hover:text-pink-300 bg-pink-600/10 border border-pink-600/30 px-5 py-2 rounded-full transition-all hover:scale-105 active:scale-95"
+                className="inline-flex items-center gap-2 text-pink-600 font-bold hover:text-pink-500 bg-gradient-to-r from-pink-50 to-pink-100 border-2 border-pink-200 px-6 py-3 rounded-2xl transition-all hover:shadow-md touch-feedback"
               >
-                <IoLogoInstagram size={18} />
+                <IoLogoInstagram size={20} />
                 @septianhnr
               </a>
             </div>
           </div>
         </div>
+        
         <BottomNav activeTab={activeTab} onTabChange={setActiveTab} language={language} />
       </div>
     );
   }
 
+  // Game Screen
   if (showGame) {
     const history = game.history();
-    const canUndo = history.length >= 2 && !isThinking && !gameStatus;
-    const canSave = history.length > 0 && !gameStatus;
+    // Undo bisa dilakukan jika ada minimal 1 move dan game belum selesai
+    const canUndo = history.length >= 1 && !isThinking && !gameStatus;
+    // Save bisa dilakukan jika ada move dan game belum selesai
+    const canSave = history.length > 0 && !gameStatus && !isThinking;
     
     return (
-      <div className="min-h-screen bg-slate-900 flex flex-col">
-        <Toast message={toast.message} show={toast.show} onHide={() => setToast({ ...toast, show: false })} />
-        <GameResultModal status={gameStatus} onReset={resetGame} onHome={() => { setShowGame(false); resetGame(); }} language={language} />
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-emerald-50 flex flex-col">
+        <Toast 
+          message={toast.message} 
+          show={toast.show} 
+          type={toast.type}
+          onHide={() => setToast({ ...toast, show: false })} 
+        />
+        <GameResultModal 
+          status={gameStatus} 
+          onReset={resetGame} 
+          onHome={() => { setShowGame(false); resetGame(); }} 
+          language={language} 
+        />
 
-        <div className="bg-slate-800 border-b border-slate-700 shadow-sm px-4 py-3 flex justify-between items-center sticky top-0 z-30">
+        {/* Header */}
+        <div className="bg-white border-b border-gray-200 shadow-sm px-4 py-3 flex justify-between items-center sticky top-0 z-30">
           <button 
             onClick={() => { setShowGame(false); resetGame(); }} 
-            className="p-2 rounded-full hover:bg-slate-700 text-slate-300 transition-colors active:scale-95"
+            className="p-2 rounded-xl hover:bg-gray-100 text-gray-700 transition-colors touch-feedback"
             aria-label="Back to menu"
           >
             <IoArrowBack size={24} />
           </button>
-          <div className="font-bold text-slate-100 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse-slow"></span>
+          <div className="font-bold text-gray-800 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse-slow"></span>
             {t.level} {currentLevel}
           </div>
           <button 
             onClick={resetGame} 
-            className="p-2 rounded-full hover:bg-red-600/20 text-red-400 flex items-center gap-1 bg-red-600/10 px-3 border border-red-600/30 transition-colors active:scale-95"
+            className="p-2 rounded-xl hover:bg-red-50 text-red-600 flex items-center gap-1 bg-red-50/50 px-3 border border-red-200 transition-colors touch-feedback"
             aria-label="Reset game"
           >
             <IoRefresh size={18} /> <span className="text-xs font-bold">{t.reset}</span>
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col w-full max-w-lg mx-auto">
+        {/* Main Game Area */}
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col max-w-2xl mx-auto w-full">
+          {/* AI Player Info */}
           <div className="flex justify-between items-center mb-4 px-1">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-slate-700 border-2 border-slate-600 text-white flex items-center justify-center text-lg shadow-md">
-                🤖
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-red-500 to-pink-500 text-white flex items-center justify-center shadow-lg">
+                <GiRobotGolem className="text-2xl" />
               </div>
               <div>
-                <div className="font-bold text-slate-100 leading-tight">AI Computer</div>
-                <div className="text-xs text-slate-400 font-medium h-4">
-                  {isThinking ? <span className="text-blue-400 animate-pulse-slow">{t.aiThinking}</span> : t.waitingTurn}
+                <div className="font-bold text-gray-800 leading-tight">AI Computer</div>
+                <div className="text-xs text-gray-500 font-medium h-4">
+                  {isThinking ? (
+                    <span className="text-blue-600 animate-pulse-slow">{t.aiThinking}</span>
+                  ) : (
+                    t.waitingTurn
+                  )}
                 </div>
               </div>
             </div>
           </div>
 
+          {/* Chess Board */}
           <ChessBoard
             board={board}
             selectedSquare={selectedSquare}
@@ -490,32 +500,43 @@ export default function ChessGameApp() {
             onSquareClick={handleSquareClick}
           />
 
+          {/* Game Status */}
           <div className="mt-4 mb-2 min-h-14 flex items-center justify-center">
             {game.isCheck() && !gameStatus ? (
-              <div className="bg-red-600 text-white px-6 py-2 rounded-full font-bold animate-pulse-slow shadow-lg flex items-center gap-2 text-sm">
-                ⚠️ {t.check}
+              <div className="bg-gradient-to-r from-red-500 to-pink-500 text-white px-6 py-2 rounded-full font-bold animate-pulse-slow shadow-lg flex items-center gap-2 text-sm">
+                <IoShieldCheckmark size={18} />
+                {t.check}
               </div>
             ) : !gameStatus ? (
-              <div className={`px-6 py-2 rounded-full font-bold border transition-all shadow-sm text-sm ${
+              <div className={`px-6 py-2 rounded-full font-bold border-2 transition-all shadow-sm text-sm flex items-center gap-2 ${
                   (game.turn() === 'w' && playerColor === 'white') || (game.turn() === 'b' && playerColor === 'black')
-                  ? 'bg-blue-600 text-white border-blue-500 shadow-blue-500/30'
-                  : 'bg-slate-800 text-slate-400 border-slate-700'
+                  ? 'bg-gradient-to-r from-blue-500 to-emerald-500 text-white border-blue-400 shadow-blue-200'
+                  : 'bg-white text-gray-600 border-gray-200'
               }`}>
-                  {(game.turn() === 'w' && playerColor === 'white') || (game.turn() === 'b' && playerColor === 'black')
-                  ? t.yourTurn
-                  : t.waitingAI}
+                  {(game.turn() === 'w' && playerColor === 'white') || (game.turn() === 'b' && playerColor === 'black') ? (
+                    <>
+                      <IoRocket size={16} />
+                      {t.yourTurn}
+                    </>
+                  ) : (
+                    <>
+                      <GiRobotGolem size={16} />
+                      {t.waitingAI}
+                    </>
+                  )}
               </div>
             ) : null}
           </div>
 
+          {/* Control Buttons */}
           <div className="grid grid-cols-2 gap-3 mt-auto mb-4">
             <button 
               onClick={handleUndo} 
               disabled={!canUndo}
-              className={`flex flex-col items-center justify-center gap-1 p-4 rounded-2xl shadow-sm border-b-4 transition-all ${
+              className={`flex flex-col items-center justify-center gap-1 p-4 rounded-2xl shadow-sm transition-all ${
                 canUndo
-                  ? 'bg-slate-700 border-blue-600 text-blue-400 hover:bg-slate-600 active:border-b-0 active:translate-y-1'
-                  : 'bg-slate-800/50 border-slate-700 text-slate-600 cursor-not-allowed'
+                  ? 'bg-gradient-to-br from-blue-50 to-cyan-50 border-2 border-blue-200 text-blue-600 hover:shadow-md touch-feedback'
+                  : 'bg-gray-100 border-2 border-gray-200 text-gray-400 cursor-not-allowed'
               }`}
               aria-label="Undo move"
             >
@@ -526,10 +547,10 @@ export default function ChessGameApp() {
             <button 
               onClick={handleSaveGame} 
               disabled={!canSave}
-              className={`flex flex-col items-center justify-center gap-1 p-4 rounded-2xl shadow-sm border-b-4 transition-all ${
+              className={`flex flex-col items-center justify-center gap-1 p-4 rounded-2xl shadow-sm transition-all ${
                 canSave
-                  ? 'bg-slate-700 border-green-600 text-green-400 hover:bg-slate-600 active:border-b-0 active:translate-y-1'
-                  : 'bg-slate-800/50 border-slate-700 text-slate-600 cursor-not-allowed'
+                  ? 'bg-gradient-to-br from-emerald-50 to-green-50 border-2 border-emerald-200 text-emerald-600 hover:shadow-md touch-feedback'
+                  : 'bg-gray-100 border-2 border-gray-200 text-gray-400 cursor-not-allowed'
               }`}
               aria-label="Save game"
             >
@@ -537,58 +558,91 @@ export default function ChessGameApp() {
               <span className="text-xs font-bold">{t.save}</span>
             </button>
           </div>
+
+          {/* Human Player Info */}
+          <div className="flex justify-between items-center mt-2 px-1">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-emerald-500 text-white flex items-center justify-center shadow-lg">
+                <GiChessKnight className="text-2xl" />
+              </div>
+              <div>
+                <div className="font-bold text-gray-800 leading-tight">{userName.split(' ')[0]}</div>
+                <div className="text-xs text-gray-500 font-medium">{language === 'id' ? 'Kamu' : 'You'}</div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
-  if(activeTab === 'leaderboard') return (
-    <div className="min-h-screen bg-slate-900">
-      <Leaderboard currentUserId={userId || ''} language={language} />
-      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} language={language} />
-    </div>
-  );
+  // Other tabs
+  if(activeTab === 'leaderboard') {
+    return (
+      <div className="min-h-screen">
+        <Leaderboard currentUserId={userId || ''} language={language} />
+        <BottomNav activeTab={activeTab} onTabChange={setActiveTab} language={language} />
+      </div>
+    );
+  }
   
-  if(activeTab === 'stats') return (
-    <div className="min-h-screen bg-slate-900">
-      <StatsPage userId={userId || ''} progress={progress} language={language} />
-      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} language={language} />
-    </div>
-  );
+  if(activeTab === 'stats') {
+    return (
+      <div className="min-h-screen">
+        <StatsPage userId={userId || ''} progress={progress} language={language} />
+        <BottomNav activeTab={activeTab} onTabChange={setActiveTab} language={language} />
+      </div>
+    );
+  }
 
+  // Home Screen
   return (
-    <div className="min-h-screen pb-24 bg-slate-900">
-      <Toast message={toast.message} show={toast.show} onHide={() => setToast({ ...toast, show: false })} />
+    <div className="min-h-screen pb-24 bg-gradient-to-br from-blue-50 via-white to-emerald-50">
+      <Toast 
+        message={toast.message} 
+        show={toast.show} 
+        type={toast.type}
+        onHide={() => setToast({ ...toast, show: false })} 
+      />
       
-      <div className="bg-linear-to-br from-blue-900 to-blue-950 p-6 md:p-8 rounded-b-[2.5rem] shadow-xl relative overflow-hidden">
+      {/* Header */}
+      <div className="bg-gradient-to-br from-blue-500 to-emerald-500 p-6 md:p-8 rounded-b-[2.5rem] shadow-xl relative overflow-hidden">
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-0 left-0 w-32 h-32 bg-white rounded-full -translate-x-1/2 -translate-y-1/2"></div>
+          <div className="absolute bottom-0 right-0 w-40 h-40 bg-white rounded-full translate-x-1/2 translate-y-1/2"></div>
+        </div>
+        
         <div className="absolute top-4 right-4">
           <button
             onClick={toggleLanguage}
-            className="p-2 rounded-full bg-blue-800/30 border border-blue-600/30 text-blue-300 hover:bg-blue-800/50 transition-all active:scale-95"
+            className="p-2 rounded-xl bg-white/20 border border-white/30 text-white hover:bg-white/30 transition-all touch-feedback backdrop-blur-sm"
             aria-label="Change language"
           >
             <IoLanguage size={20} />
           </button>
         </div>
         
-        <div className="relative z-10 text-center text-white">
-          <h1 className="text-2xl md:text-3xl font-bold mb-1">{t.greeting}, {userName.split(' ')[0]} 👋</h1>
-          <p className="text-blue-200 text-sm mb-6">{t.readyMessage}</p>
+        <div className="relative z-10 text-center text-white max-w-lg mx-auto">
+          <h1 className="text-3xl md:text-4xl font-bold mb-1 drop-shadow-md flex items-center justify-center gap-2">
+            {t.greeting}, {userName.split(' ')[0]}! <IoSparkles className="text-yellow-300 animate-bounce-slow" />
+          </h1>
+          <p className="text-blue-100 text-sm mb-6 font-medium">{t.readyMessage}</p>
           
-          <div className="flex items-center justify-center gap-0 bg-blue-800/30 backdrop-blur-md rounded-2xl border border-blue-600/30 overflow-hidden max-w-xs mx-auto">
-            <div className="flex-1 text-center py-3 border-r border-blue-600/30">
-              <div className="text-[10px] text-blue-300 uppercase tracking-wider font-semibold">{t.level}</div>
-              <div className="text-2xl font-bold text-white leading-none mt-1">{progress.highestLevel}</div>
+          <div className="grid grid-cols-2 gap-3 max-w-xs mx-auto">
+            <div className="bg-white/20 backdrop-blur-md rounded-2xl border border-white/30 p-4 shadow-lg">
+              <div className="text-xs text-blue-100 uppercase tracking-wider font-bold mb-1">{t.level}</div>
+              <div className="text-3xl font-black text-white leading-none">{progress.highestLevel}</div>
             </div>
-            <div className="flex-1 text-center py-3">
-              <div className="text-[10px] text-blue-300 uppercase tracking-wider font-semibold">{t.wins}</div>
-              <div className="text-2xl font-bold text-white leading-none mt-1">{progress.gamesWon}</div>
+            <div className="bg-white/20 backdrop-blur-md rounded-2xl border border-white/30 p-4 shadow-lg">
+              <div className="text-xs text-blue-100 uppercase tracking-wider font-bold mb-1">{t.wins}</div>
+              <div className="text-3xl font-black text-white leading-none">{progress.gamesWon}</div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="px-4 -mt-6 relative z-20 space-y-4 animate-slide-up">
+      {/* Main Content */}
+      <div className="max-w-lg mx-auto px-4 -mt-6 relative z-20 space-y-4 animate-slide-up">
         <LevelSelector
           currentLevel={currentLevel}
           highestLevel={progress.highestLevel}

@@ -4,18 +4,22 @@
 
 @layer theme {
   :root {
-    /* Navy Blue Theme Colors */
-    --color-primary: 30 58 138; /* blue-900 */
-    --color-primary-dark: 23 37 84; /* blue-950 */
-    --color-primary-light: 37 99 235; /* blue-600 */
-    --color-secondary: 29 78 216; /* blue-700 */
-    --color-accent: 59 130 246; /* blue-500 */
+    /* Modern Light Theme Colors */
+    --color-primary: 59 130 246; /* blue-500 */
+    --color-primary-dark: 37 99 235; /* blue-600 */
+    --color-primary-light: 147 197 253; /* blue-300 */
+    --color-secondary: 16 185 129; /* emerald-500 */
+    --color-accent: 249 115 22; /* orange-500 */
     
-    /* Neutral Colors */
-    --color-background: 15 23 42; /* slate-900 */
-    --color-surface: 30 41 59; /* slate-800 */
-    --color-foreground: 248 250 252; /* slate-50 */
-    --color-muted: 148 163 184; /* slate-400 */
+    /* Light Background Colors */
+    --color-background: 249 250 251; /* gray-50 */
+    --color-surface: 255 255 255; /* white */
+    --color-foreground: 17 24 39; /* gray-900 */
+    --color-muted: 107 114 128; /* gray-500 */
+    
+    /* Chess Board Colors */
+    --color-board-light: 240 217 181; /* #f0d9b5 */
+    --color-board-dark: 181 136 99; /* #b58863 */
     
     /* Status Colors */
     --color-success: 34 197 94; /* green-500 */
@@ -26,6 +30,7 @@
 
 * {
   font-family: var(--font-poppins), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
@@ -35,6 +40,8 @@ body {
   padding: 0;
   min-height: 100vh;
   overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Custom scrollbar */
@@ -43,16 +50,16 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(37, 99, 235, 0.05);
+  background: rgba(59, 130, 246, 0.05);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(37, 99, 235, 0.2);
+  background: rgba(59, 130, 246, 0.3);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(37, 99, 235, 0.3);
+  background: rgba(59, 130, 246, 0.5);
 }
 
 /* Animations */
@@ -78,7 +85,7 @@ body {
 
 @keyframes popIn {
   0% { 
-    transform: scale(0.9); 
+    transform: scale(0.95); 
     opacity: 0; 
   }
   50% { 
@@ -95,7 +102,18 @@ body {
     opacity: 1;
   }
   50% {
-    opacity: 0.5;
+    opacity: 0.7;
+  }
+}
+
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(-5%);
+    animation-timing-function: cubic-bezier(0.8, 0, 1, 1);
+  }
+  50% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
   }
 }
 
@@ -115,23 +133,61 @@ body {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+.animate-bounce-slow {
+  animation: bounce 2s ease-in-out infinite;
+}
+
 /* Safe area for mobile notch/home indicator */
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-/* Glass effect */
+/* Modern glass effect */
 .glass-effect {
   background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
-/* Button hover effects */
+/* Button styles */
 .btn-primary {
-  @apply bg-blue-600 text-white font-semibold py-3 px-6 rounded-xl shadow-lg shadow-blue-200 hover:bg-blue-700 active:scale-95 transition-all duration-200;
+  @apply bg-blue-500 text-white font-semibold py-3 px-6 rounded-2xl shadow-lg shadow-blue-200 hover:bg-blue-600 active:scale-95 transition-all duration-200;
 }
 
 .btn-secondary {
-  @apply bg-white text-blue-600 font-semibold py-3 px-6 rounded-xl border-2 border-blue-200 hover:border-blue-400 active:scale-95 transition-all duration-200;
+  @apply bg-white text-blue-600 font-semibold py-3 px-6 rounded-2xl border-2 border-blue-200 hover:border-blue-400 hover:shadow-md active:scale-95 transition-all duration-200;
+}
+
+.btn-success {
+  @apply bg-emerald-500 text-white font-semibold py-3 px-6 rounded-2xl shadow-lg shadow-emerald-200 hover:bg-emerald-600 active:scale-95 transition-all duration-200;
+}
+
+/* Card styles */
+.card {
+  @apply bg-white rounded-3xl shadow-lg border border-gray-100 p-6 transition-all;
+}
+
+.card-hover {
+  @apply hover:shadow-xl hover:-translate-y-1;
+}
+
+/* Disable text selection on chess pieces */
+.chess-piece {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+/* Touch feedback */
+.touch-feedback {
+  @apply active:scale-95 transition-transform duration-100;
+}
+
+/* Hide number input spinners */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }

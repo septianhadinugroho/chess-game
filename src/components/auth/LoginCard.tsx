@@ -14,80 +14,96 @@ export const LoginCard: React.FC<LoginCardProps> = ({ onLogin, language, onLangu
   const t = translations[language];
   
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-900">
-      <div className="w-full max-w-md animate-slide-up">
-        <div className="bg-slate-800 border border-slate-700 rounded-3xl shadow-2xl overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-blue-50 via-white to-emerald-50">
+      {/* Decorative Elements */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-20 left-10 w-72 h-72 bg-blue-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse-slow"></div>
+        <div className="absolute bottom-20 right-10 w-72 h-72 bg-emerald-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse-slow" style={{ animationDelay: '1s' }}></div>
+      </div>
+
+      <div className="w-full max-w-md relative z-10 animate-fade-in">
+        <div className="bg-white rounded-3xl shadow-2xl overflow-hidden border border-gray-100">
           {/* Header Section */}
-          <div className="bg-linear-to-br from-blue-900 to-blue-950 p-8 text-center relative overflow-hidden">
+          <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-8 text-center relative overflow-hidden">
             <div className="absolute inset-0 opacity-10">
               <div className="absolute top-0 left-0 w-32 h-32 bg-white rounded-full -translate-x-1/2 -translate-y-1/2"></div>
               <div className="absolute bottom-0 right-0 w-40 h-40 bg-white rounded-full translate-x-1/2 translate-y-1/2"></div>
             </div>
             
             <div className="relative z-10">
-              <div className="inline-flex items-center justify-center w-20 h-20 bg-blue-800/30 backdrop-blur-sm rounded-2xl mb-4 border border-blue-600/30">
-                <GiChessKnight className="text-6xl text-white" />
+              <div className="inline-flex items-center justify-center w-24 h-24 bg-white/20 backdrop-blur-sm rounded-3xl mb-4 shadow-xl">
+                <GiChessKnight className="text-7xl text-white drop-shadow-lg" />
               </div>
-              <h1 className="text-3xl font-bold text-white mb-2">Chess Master</h1>
-              <div className="flex items-center justify-center gap-2 text-white/90">
-                <IoSparkles className="text-blue-300" size={16} />
-                <p className="text-sm font-medium">10 Level AI Challenge</p>
-                <IoSparkles className="text-blue-300" size={16} />
+              <h1 className="text-3xl font-bold text-white mb-2 drop-shadow-md">Chess Master</h1>
+              <div className="flex items-center justify-center gap-2 text-white/95">
+                <IoSparkles className="text-yellow-300" size={18} />
+                <p className="text-sm font-semibold">10 Level AI Challenge</p>
+                <IoSparkles className="text-yellow-300" size={18} />
               </div>
             </div>
           </div>
 
           {/* Content Section */}
           <div className="p-8">
-            <div className="text-center mb-6">
-              <h2 className="text-2xl font-bold text-slate-100 mb-2">
+            <div className="text-center mb-8">
+              <h2 className="text-2xl font-bold text-gray-800 mb-2">
                 {t.welcome}
               </h2>
-              <p className="text-slate-400 text-sm">
+              <p className="text-gray-600 text-sm">
                 {t.loginSubtitle}
               </p>
             </div>
 
             {/* Features Grid */}
             <div className="grid grid-cols-3 gap-3 mb-8">
-              <div className="text-center p-4 bg-blue-600/10 border border-blue-600/30 rounded-xl">
-                <div className="text-3xl mb-2">🎯</div>
-                <p className="text-xs font-semibold text-blue-400">10 {t.level}</p>
+              <div className="text-center p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-2xl border border-blue-200 hover:shadow-md transition-all">
+                <div className="text-4xl mb-2">
+                  <IoSparkles className="text-blue-600 mx-auto" />
+                </div>
+                <p className="text-xs font-bold text-blue-700">10 {t.level}</p>
               </div>
-              <div className="text-center p-4 bg-blue-600/10 border border-blue-600/30 rounded-xl">
-                <IoTrophy className="text-3xl text-blue-400 mx-auto mb-2" />
-                <p className="text-xs font-semibold text-blue-400">{t.ranking}</p>
+              <div className="text-center p-4 bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-2xl border border-emerald-200 hover:shadow-md transition-all">
+                <IoTrophy className="text-4xl text-emerald-600 mx-auto mb-2" />
+                <p className="text-xs font-bold text-emerald-700">{t.ranking}</p>
               </div>
-              <div className="text-center p-4 bg-blue-600/10 border border-blue-600/30 rounded-xl">
-                <IoStatsChart className="text-3xl text-blue-400 mx-auto mb-2" />
-                <p className="text-xs font-semibold text-blue-400">{t.stats}</p>
+              <div className="text-center p-4 bg-gradient-to-br from-orange-50 to-orange-100 rounded-2xl border border-orange-200 hover:shadow-md transition-all">
+                <IoStatsChart className="text-4xl text-orange-600 mx-auto mb-2" />
+                <p className="text-xs font-bold text-orange-700">{t.stats}</p>
               </div>
             </div>
 
             {/* Login Button */}
             <button
               onClick={onLogin}
-              className="w-full bg-slate-700 border-2 border-slate-600 hover:border-blue-500 hover:shadow-lg text-slate-100 font-semibold py-4 px-6 rounded-xl transition-all flex items-center justify-center gap-3 group mb-4"
+              className="w-full bg-white border-2 border-gray-200 hover:border-blue-400 hover:shadow-xl text-gray-800 font-bold py-4 px-6 rounded-2xl transition-all flex items-center justify-center gap-3 group mb-4 touch-feedback"
             >
-              <FcGoogle className="text-2xl" />
-              <span>{t.loginButton}</span>
+              <FcGoogle className="text-3xl group-hover:scale-110 transition-transform" />
+              <span className="text-base">{t.loginButton}</span>
             </button>
 
             {/* Language Toggle */}
             <button
               onClick={onLanguageToggle}
-              className="w-full bg-blue-600/10 border border-blue-600/30 text-blue-400 font-semibold py-3 px-6 rounded-xl transition-all hover:bg-blue-600/20 active:scale-95 flex items-center justify-center gap-2"
+              className="w-full bg-gradient-to-r from-blue-50 to-emerald-50 border border-blue-200 text-blue-700 font-semibold py-3 px-6 rounded-2xl transition-all hover:shadow-md touch-feedback flex items-center justify-center gap-2"
             >
-              <IoLanguage size={20} />
-              <span className="text-sm">
+              <IoLanguage size={22} />
+              <span className="text-sm font-bold">
                 {language === 'id' ? '🇬🇧 English' : '🇮🇩 Indonesia'}
               </span>
             </button>
 
-            <p className="text-center text-xs text-slate-500 mt-4">
+            <p className="text-center text-xs text-gray-500 mt-6 flex items-center justify-center gap-1">
+              <IoSparkles className="text-emerald-500" size={14} />
               {language === 'id' ? 'Progress & statistik tersimpan otomatis' : 'Progress & stats auto-saved'}
             </p>
           </div>
+        </div>
+
+        {/* Footer Text */}
+        <div className="text-center mt-6">
+          <p className="text-sm text-gray-500">
+            {language === 'id' ? 'Tantang AI dari pemula hingga grand master' : 'Challenge AI from beginner to grand master'}
+          </p>
         </div>
       </div>
     </div>
