@@ -735,7 +735,7 @@ export default function ChessGameApp() {
               }`}
             >
               <IoSave size={20} />
-              {t.saveGame}
+              {t.save}
             </button>
           </div>
         </div>
