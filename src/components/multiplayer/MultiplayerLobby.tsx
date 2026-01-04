@@ -338,6 +338,7 @@ export default function MultiplayerLobby({
                   onClick={() => joinRoom(roomCode)}
                   disabled={loading || roomCode.length !== 6}
                   className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white px-6 rounded-xl font-bold hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center"
+                  aria-label={language === 'id' ? 'Masuk Room' : 'Join Room'} // FIX: Added aria-label
                 >
                   <IoEnter size={24} />
                 </button>
@@ -352,6 +353,7 @@ export default function MultiplayerLobby({
                 <button
                   onClick={fetchAvailableRooms}
                   className="p-2 hover:bg-gray-100 rounded-xl transition-colors text-blue-500"
+                  aria-label={language === 'id' ? 'Refresh Room' : 'Refresh Rooms'} // FIX: Added aria-label
                 >
                   <IoRefresh size={20} />
                 </button>

@@ -617,6 +617,7 @@ export default function ChessGameApp() {
           <button 
             onClick={() => { setShowGame(false); setGameMode(null); resetGame(); }} 
             className="p-2 rounded-xl hover:bg-gray-100 text-gray-700 transition-colors touch-feedback"
+            aria-label={t.backToMenu} // Added aria-label
           >
             <IoArrowBack size={24} />
           </button>
@@ -632,12 +633,14 @@ export default function ChessGameApp() {
                   ? 'bg-blue-500 text-white border-blue-500'
                   : 'hover:bg-blue-50 text-blue-600 border-blue-200'
               }`}
+              aria-label="Toggle Move History" // Added aria-label
             >
               <IoList size={18} />
             </button>
             <button 
               onClick={() => resetGame(true)}
               className="p-2 rounded-xl hover:bg-red-50 text-red-600 flex items-center gap-1 bg-red-50/50 px-3 border border-red-200 transition-colors touch-feedback"
+              aria-label={t.reset} // Added aria-label
             >
               <IoRefresh size={18} /> <span className="text-xs font-bold">{t.reset}</span>
             </button>
@@ -747,7 +750,7 @@ export default function ChessGameApp() {
   if (activeTab === 'leaderboard') {
     return (
       <div className="min-h-screen pb-20 bg-gradient-to-br from-blue-50 via-white to-emerald-50">
-        <Leaderboard userId={userId} language={language} />
+        <Leaderboard currentUserId={userId || ''} language={language} />
         <BottomNav activeTab={activeTab} onTabChange={setActiveTab} language={language} />
       </div>
     );
@@ -757,7 +760,7 @@ export default function ChessGameApp() {
   if (activeTab === 'stats') {
     return (
       <div className="min-h-screen pb-20 bg-gradient-to-br from-blue-50 via-white to-emerald-50">
-        <StatsPage userId={userId} language={language} />
+        <StatsPage userId={userId || ''} progress={progress} language={language} />
         <BottomNav activeTab={activeTab} onTabChange={setActiveTab} language={language} />
       </div>
     );
@@ -817,6 +820,7 @@ export default function ChessGameApp() {
               <button 
                 onClick={() => setGameMode(null)}
                 className="p-2 rounded-xl hover:bg-white hover:shadow-sm transition-all text-gray-600"
+                aria-label={t.backToMenu} // Added aria-label
               >
                 <IoArrowBack size={24} />
               </button>
@@ -831,8 +835,7 @@ export default function ChessGameApp() {
             />
             
             <ColorSelector 
-              selectedColor={playerColor || 'random'} 
-              onSelectColor={(c) => setPlayerColor(c as any)} 
+              onSelectColor={startGame}
               language={language}
             />
             
