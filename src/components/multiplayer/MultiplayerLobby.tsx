@@ -32,11 +32,10 @@ export default function MultiplayerLobby({
 }: MultiplayerLobbyProps) {
   const t = translations[language];
   
-  // Tab State
   const [activeTab, setActiveTab] = useState<'create' | 'join'>('create');
   
   // Create Room State
-  const [timeControl, setTimeControl] = useState(600); // Default 10 menit
+  const [timeControl, setTimeControl] = useState(60); // Default 1 menit per jalan
   const [selectedColor, setSelectedColor] = useState<'white' | 'black' | 'random'>('random');
   const [loading, setLoading] = useState(false);
   
@@ -44,31 +43,29 @@ export default function MultiplayerLobby({
   const [roomCode, setRoomCode] = useState('');
   const [availableRooms, setAvailableRooms] = useState<Room[]>([]);
   
-  // Waiting Room State (Setelah Create)
+  // Waiting Room State
   const [createdRoom, setCreatedRoom] = useState<Room | null>(null);
   const [copied, setCopied] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
-  // Time Presets
+  // FIXED: Time Presets PER MOVE (bukan total game)
   const timePresets = [
-    { value: 180, label: '3 min' },
-    { value: 300, label: '5 min' },
-    { value: 600, label: '10 min' },
-    { value: 900, label: '15 min' },
+    { value: 10, label: '10s' },
+    { value: 30, label: '30s' },
+    { value: 60, label: '1m' },
+    { value: 120, label: '2m' },
+    { value: 300, label: '5m' },
   ];
 
-  // Fetch rooms saat pindah ke tab Join
   useEffect(() => {
     if (activeTab === 'join') {
       fetchAvailableRooms();
     }
   }, [activeTab]);
 
-  // Realtime Listener untuk Host di Waiting Room
   useEffect(() => {
     if (!createdRoom) return;
 
-    // Subscribe ke perubahan di room ini
     const channel = supabase
       .channel(`room_waiting_${createdRoom.id}`)
       .on('postgres_changes', { 
@@ -79,9 +76,7 @@ export default function MultiplayerLobby({
       }, (payload) => {
         const updatedRoom = payload.new as Room;
         
-        // Jika status berubah jadi 'playing', berarti Guest sudah join!
         if (updatedRoom.status === 'playing') {
-          // Masuk ke game
           onJoinRoom(updatedRoom.id, updatedRoom.room_code);
         }
       })
@@ -96,7 +91,7 @@ export default function MultiplayerLobby({
         .from('game_rooms')
         .select('*')
         .eq('status', 'waiting')
-        .neq('host_user_id', userId) // Jangan tampilkan room sendiri
+        .neq('host_user_id', userId)
         .order('created_at', { ascending: false })
         .limit(10);
 
@@ -112,7 +107,6 @@ export default function MultiplayerLobby({
     try {
       const code = Math.random().toString(36).substring(2, 8).toUpperCase();
       
-      // Tentukan warna host sekarang biar jelas masuk DB
       const finalHostColor = selectedColor === 'random' 
         ? (Math.random() > 0.5 ? 'white' : 'black') 
         : selectedColor;
@@ -127,15 +121,13 @@ export default function MultiplayerLobby({
           white_time_left: timeControl,
           black_time_left: timeControl,
           status: 'waiting',
-          is_paused: false, // Kolom baru untuk fitur pause
+          is_paused: false,
           current_fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
         }])
         .select()
         .single();
 
       if (error) throw error;
-
-      // JANGAN LANGSUNG JOIN GAME! Masuk ke Waiting State dulu.
       setCreatedRoom(data);
 
     } catch (error) {
@@ -146,30 +138,28 @@ export default function MultiplayerLobby({
     }
   };
 
+  // FIXED: Delete room properly
   const deleteRoom = async () => {
     if (!createdRoom) return;
     
-    // Konfirmasi sebelum hapus
     const confirmDelete = confirm(
       language === 'id' 
-        ? 'Batalkan dan hapus room ini?' 
-        : 'Cancel and delete this room?'
+        ? 'Hapus room ini? Kamu akan kembali ke menu.' 
+        : 'Delete this room? You\'ll return to menu.'
     );
     
     if (!confirmDelete) return;
     
     setLoading(true);
     try {
-      // Hapus dari database
       const { error } = await supabase
         .from('game_rooms')
         .delete()
         .eq('id', createdRoom.id)
-        .eq('host_user_id', userId); // Security check
+        .eq('host_user_id', userId);
       
       if (error) throw error;
       
-      // Reset state, kembali ke menu create
       setCreatedRoom(null);
       
     } catch (error) {
@@ -185,7 +175,6 @@ export default function MultiplayerLobby({
     setLoading(true);
 
     try {
-      // 1. Cari Room
       const { data: roomData, error: fetchError } = await supabase
         .from('game_rooms')
         .select('*')
@@ -194,17 +183,15 @@ export default function MultiplayerLobby({
         .single();
 
       if (fetchError || !roomData) {
-        alert(language === 'id' ? 'Room tidak ditemukan atau penuh!' : 'Room not found or full!');
+        alert(language === 'id' ? 'Room tidak ditemukan!' : 'Room not found!');
         return;
       }
 
-      // 2. Cek Host (Gak boleh join room sendiri di tab Join)
       if (roomData.host_user_id === userId) {
-        alert(language === 'id' ? 'Anda host room ini (Tunggu di lobi)' : 'You are the host (Wait in lobby)');
+        alert(language === 'id' ? 'Ini room kamu sendiri' : 'This is your own room');
         return;
       }
 
-      // 3. Update Database: Masukkan Guest & Ubah Status jadi Playing
       const { error: updateError } = await supabase
         .from('game_rooms')
         .update({ 
@@ -215,7 +202,6 @@ export default function MultiplayerLobby({
 
       if (updateError) throw updateError;
 
-      // 4. Guest Langsung Masuk Game
       onJoinRoom(roomData.id, code.toUpperCase());
 
     } catch (error) {
@@ -244,7 +230,7 @@ export default function MultiplayerLobby({
     if (navigator.share) {
       navigator.share({
         title: 'Chess Master - Join my game!',
-        text: `Join my chess game with code: ${createdRoom.room_code}`,
+        text: `Join chess game: ${createdRoom.room_code}`,
         url: url
       });
     } else {
@@ -252,7 +238,7 @@ export default function MultiplayerLobby({
     }
   };
 
-  // --- UI: WAITING ROOM (Saat Host sudah create room) ---
+  // === WAITING ROOM ===
   if (createdRoom) {
     const shareUrl = `${window.location.origin}?room=${createdRoom.room_code}`;
     
@@ -261,7 +247,6 @@ export default function MultiplayerLobby({
         <div className="max-w-md w-full">
           <div className="card text-center animate-slide-up">
             
-            {/* Animasi Loading */}
             <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse relative">
               <IoTime className="text-4xl text-blue-500" />
               <div className="absolute inset-0 border-4 border-blue-200 rounded-full animate-ping opacity-20"></div>
@@ -272,11 +257,10 @@ export default function MultiplayerLobby({
             </h2>
             <p className="text-gray-600 mb-6 text-sm">
               {language === 'id' 
-                ? 'Bagikan kode ini ke temanmu untuk mulai main' 
-                : 'Share this code with your friend to start'}
+                ? 'Bagikan kode ini ke temanmu' 
+                : 'Share this code with your friend'}
             </p>
 
-            {/* Room Code Display */}
             <div className="bg-gray-100 p-5 rounded-2xl mb-6 relative border border-gray-200">
               <p className="text-xs text-gray-500 mb-1 font-bold uppercase tracking-widest">
                 {language === 'id' ? 'Kode Room' : 'Room Code'}
@@ -288,33 +272,28 @@ export default function MultiplayerLobby({
               <button
                 onClick={() => copyToClipboard(createdRoom.room_code)}
                 className="absolute top-4 right-4 p-2 text-gray-400 hover:text-blue-600 hover:bg-white rounded-lg transition-all"
-                title="Copy Code"
               >
                 {copied ? <IoCheckmark size={20} /> : <IoCopy size={20} />}
               </button>
             </div>
 
-            {/* Room Info Details */}
             <div className="flex justify-center gap-3 mb-8">
               <div className="flex items-center gap-2 bg-blue-50 px-4 py-2 rounded-xl border border-blue-100 text-sm text-blue-800">
                 {createdRoom.host_color === 'white' 
-                  ? <FaChessKing className="text-gray-400 stroke-1" /> // Putih
-                  : <FaChessKing className="text-black" /> // Hitam
+                  ? <FaChessKing className="text-gray-400" /> 
+                  : <FaChessKing className="text-black" />
                 }
                 <span className="font-bold">
-                  {language === 'id' 
-                    ? (createdRoom.host_color === 'white' ? 'Putih' : 'Hitam') 
-                    : (createdRoom.host_color === 'white' ? 'White' : 'Black')}
+                  {createdRoom.host_color === 'white' ? 'White' : 'Black'}
                 </span>
               </div>
               
               <div className="flex items-center gap-2 bg-emerald-50 px-4 py-2 rounded-xl border border-emerald-100 text-sm text-emerald-800">
                 <IoTime />
-                <span className="font-bold">{createdRoom.time_control / 60} min</span>
+                <span className="font-bold">{createdRoom.time_control}s/move</span>
               </div>
             </div>
 
-            {/* Action Buttons */}
             <div className="grid grid-cols-2 gap-3 mb-4">
               <button
                 onClick={() => copyToClipboard(shareUrl, true)}
@@ -340,7 +319,7 @@ export default function MultiplayerLobby({
             >
               {loading ? 'Deleting...' : (
                 <>
-                  <IoTrash /> {language === 'id' ? 'Batalkan Room' : 'Cancel Room'}
+                  <IoTrash /> {language === 'id' ? 'Hapus Room' : 'Delete Room'}
                 </>
               )}
             </button>
@@ -351,7 +330,7 @@ export default function MultiplayerLobby({
     );
   }
 
-  // --- UI: MENU UTAMA (Create / Join Tabs) ---
+  // === MAIN MENU ===
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-emerald-50 pb-6">
       <div className="bg-gradient-to-br from-emerald-500 to-green-500 p-4 mb-4 shadow-lg">
@@ -368,7 +347,7 @@ export default function MultiplayerLobby({
               {language === 'id' ? 'Multiplayer Online' : 'Online Multiplayer'}
             </h1>
             <p className="text-emerald-100 text-xs font-medium">
-              {language === 'id' ? 'Main dengan teman atau pemain lain' : 'Play with friends or other players'}
+              {language === 'id' ? 'Timer per langkah: Waktu reset tiap giliran' : 'Timer per move: Time resets each turn'}
             </p>
           </div>
         </div>
@@ -405,12 +384,16 @@ export default function MultiplayerLobby({
         {activeTab === 'create' && (
           <div className="card animate-slide-up space-y-6">
             
-            {/* 1. Time Control Selection */}
             <div>
               <label className="block text-xs font-bold text-gray-700 mb-3 uppercase tracking-wider">
-                ⏱️ {language === 'id' ? 'Waktu' : 'Time Control'}
+                ⏱️ {language === 'id' ? 'Waktu Per Langkah' : 'Time Per Move'}
               </label>
-              <div className="grid grid-cols-4 gap-2">
+              <p className="text-xs text-gray-500 mb-3">
+                {language === 'id' 
+                  ? 'Waktu reset setiap kali giliranmu jalan' 
+                  : 'Timer resets every time it\'s your turn'}
+              </p>
+              <div className="grid grid-cols-5 gap-2">
                 {timePresets.map((preset) => (
                   <button
                     key={preset.value}
@@ -427,7 +410,6 @@ export default function MultiplayerLobby({
               </div>
             </div>
 
-            {/* 2. Color Selection */}
             <div>
               <label className="block text-xs font-bold text-gray-700 mb-3 uppercase tracking-wider">
                 ♟️ {language === 'id' ? 'Pilih Warna' : 'Choose Color'}
@@ -441,7 +423,7 @@ export default function MultiplayerLobby({
                       : 'border-gray-100 bg-gray-50 hover:bg-gray-100'
                   }`}
                 >
-                  <FaChessKing className="text-2xl text-gray-400 stroke-1" />
+                  <FaChessKing className="text-2xl text-gray-400" />
                   <span className="text-xs font-bold text-gray-700">White</span>
                 </button>
                 
@@ -471,7 +453,6 @@ export default function MultiplayerLobby({
               </div>
             </div>
 
-            {/* Create Button */}
             <button
               onClick={createRoom}
               disabled={loading}
@@ -500,21 +481,22 @@ export default function MultiplayerLobby({
                 {language === 'id' ? 'Masukkan Kode Room' : 'Enter Room Code'}
               </h3>
 
-              <div className="flex gap-2">
+              {/* FIXED: Mobile Friendly Input */}
+              <div className="space-y-3">
                 <input
                   type="text"
                   placeholder="ABC123"
                   value={roomCode}
                   onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                  className="flex-1 px-4 py-3 bg-gray-100 border-2 border-transparent focus:border-blue-500 rounded-xl font-bold text-center text-xl tracking-widest uppercase focus:outline-none"
+                  className="w-full px-4 py-4 bg-gray-100 border-2 border-gray-200 focus:border-blue-500 rounded-xl font-bold text-center text-2xl tracking-widest uppercase focus:outline-none"
                   maxLength={6}
                 />
                 <button
                   onClick={() => joinRoom(roomCode)}
                   disabled={loading || roomCode.length !== 6}
-                  className="bg-blue-600 text-white px-6 rounded-xl font-bold hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Join
+                  {loading ? 'Joining...' : 'Join Room'}
                 </button>
               </div>
             </div>
@@ -525,8 +507,8 @@ export default function MultiplayerLobby({
               </h3>
               <button 
                 onClick={fetchAvailableRooms}
+                aria-label="Refresh Rooms"
                 className="text-blue-500 hover:bg-blue-50 p-2 rounded-lg transition-colors"
-                aria-label={language === 'id' ? 'Refresh Daftar Room' : 'Refresh Room List'}
               >
                 <IoRefresh size={20} />
               </button>
@@ -554,7 +536,7 @@ export default function MultiplayerLobby({
                         </div>
                         <div className="flex items-center gap-3 text-xs text-gray-500 font-medium">
                           <span className="flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded-md">
-                            <IoTime size={10} /> {room.time_control / 60}m
+                            <IoTime size={10} /> {room.time_control}s/move
                           </span>
                           <span className="flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded-md">
                              Host: {room.host_color}

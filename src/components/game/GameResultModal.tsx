@@ -7,19 +7,28 @@ interface GameResultModalProps {
   onReset: () => void;
   onHome: () => void;
   language: Language;
+  hidePlayAgain?: boolean; // New prop for multiplayer
 }
 
 export const GameResultModal: React.FC<GameResultModalProps> = ({ 
   status, 
   onReset, 
   onHome, 
-  language 
+  language,
+  hidePlayAgain = false 
 }) => {
   if (!status) return null;
   
   const t = translations[language];
-  const isWin = status.includes(t.youWin);
-  const isDraw = status.includes(t.draw);
+  
+  // Detect win/lose/draw
+  const isWin = status.includes(t.youWin) || 
+                status.toLowerCase().includes('menang') || 
+                status.toLowerCase().includes('win');
+  
+  const isDraw = status.includes(t.draw) || 
+                 status.toLowerCase().includes('seri') || 
+                 status.toLowerCase().includes('draw');
   
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
@@ -73,7 +82,7 @@ export const GameResultModal: React.FC<GameResultModalProps> = ({
           </p>
 
           {/* Motivational Text */}
-          {!isWin && !isDraw && (
+          {!isWin && !isDraw && !hidePlayAgain && (
             <div className="mb-6 p-4 bg-blue-50 rounded-2xl border border-blue-100">
               <p className="text-sm text-blue-800 font-medium flex items-center justify-center gap-2">
                 <IoRefresh size={16} />
@@ -90,8 +99,8 @@ export const GameResultModal: React.FC<GameResultModalProps> = ({
               <p className="text-sm font-bold text-transparent bg-clip-text bg-gradient-to-r from-yellow-700 to-orange-700 flex items-center justify-center gap-2">
                 <IoTrophy size={16} />
                 {language === 'id' 
-                  ? 'Selamat! Kamu berhasil mengalahkan AI!' 
-                  : 'Congratulations! You defeated the AI!'}
+                  ? 'Selamat! Kamu berhasil menang!' 
+                  : 'Congratulations! You won!'}
               </p>
             </div>
           )}
@@ -109,13 +118,16 @@ export const GameResultModal: React.FC<GameResultModalProps> = ({
 
           {/* Buttons */}
           <div className="space-y-3">
-            <button 
-              onClick={onReset} 
-              className="w-full bg-gradient-to-r from-blue-500 to-emerald-500 hover:from-blue-600 hover:to-emerald-600 text-white py-4 rounded-2xl font-bold transition-all shadow-lg hover:shadow-xl touch-feedback flex items-center justify-center gap-2"
-            >
-              <IoRefresh size={20} />
-              {t.playAgain}
-            </button>
+            {/* Play Again Button - Hidden for Multiplayer */}
+            {!hidePlayAgain && (
+              <button 
+                onClick={onReset} 
+                className="w-full bg-gradient-to-r from-blue-500 to-emerald-500 hover:from-blue-600 hover:to-emerald-600 text-white py-4 rounded-2xl font-bold transition-all shadow-lg hover:shadow-xl touch-feedback flex items-center justify-center gap-2"
+              >
+                <IoRefresh size={20} />
+                {t.playAgain}
+              </button>
+            )}
             
             <button 
               onClick={onHome} 
