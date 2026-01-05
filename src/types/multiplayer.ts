@@ -161,8 +161,9 @@ export interface Player {
   color: PlayerColor;
 }
 
-// Game state (for multiplayer)
-export interface MultiplayerGameState {
+// Database/API Game State (without Chess instance)
+// For data transfer and storage only
+export interface MultiplayerGameData {
   room: GameRoom;
   players: {
     white: Player | null;

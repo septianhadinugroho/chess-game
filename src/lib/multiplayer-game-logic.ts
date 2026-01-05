@@ -1,6 +1,7 @@
 import { Chess } from 'chess.js';
 import { supabase } from '@/lib/supabase';
 
+// Game state interface for multiplayer
 export interface MultiplayerGameState {
   game: Chess;
   roomId: string;
@@ -15,7 +16,7 @@ export interface MultiplayerGameState {
   pausedBy: string | null;
   moveHistory: string[];
   lastMove: { from: string; to: string } | null;
-  countdown: number; // For 3-2-1 countdown
+  countdown: number;
 }
 
 export class MultiplayerGameManager {
@@ -24,6 +25,8 @@ export class MultiplayerGameManager {
   private timerInterval: NodeJS.Timeout | null = null;
   private countdownInterval: NodeJS.Timeout | null = null;
   private realtimeChannel: any = null;
+  private isProcessingUpdate: boolean = false;
+  private hasGameEnded: boolean = false; // Prevent duplicate notifications
   
   private onStateChange: (state: MultiplayerGameState) => void;
   private onGameEnd: (won: boolean, reason: string) => void;
@@ -65,18 +68,41 @@ export class MultiplayerGameManager {
       // Fetch room data
       const { data: room, error } = await supabase
         .from('game_rooms')
-        .select('*, host:user_progress!host_user_id(player_name), guest:user_progress!guest_user_id(player_name)')
+        .select('*')
         .eq('id', roomId)
         .single();
 
-      if (error || !room) throw new Error('Room not found');
+      if (error || !room) {
+        console.error('Room fetch error:', error);
+        throw new Error('Room not found');
+      }
 
       // Determine player color & names
       const isHost = this.userId === room.host_user_id;
       const playerColor = isHost ? room.host_color : (room.host_color === 'white' ? 'black' : 'white');
       
-      const hostName = room.host?.player_name || 'Host';
-      const guestName = room.guest?.player_name || 'Guest';
+      // Fetch player names separately to avoid join issues
+      let hostName = 'Host';
+      let guestName = 'Guest';
+      
+      if (room.host_user_id) {
+        const { data: hostData } = await supabase
+          .from('user_progress')
+          .select('player_name')
+          .eq('user_id', room.host_user_id)
+          .single();
+        if (hostData) hostName = hostData.player_name || 'Host';
+      }
+      
+      if (room.guest_user_id) {
+        const { data: guestData } = await supabase
+          .from('user_progress')
+          .select('player_name')
+          .eq('user_id', room.guest_user_id)
+          .single();
+        if (guestData) guestName = guestData.player_name || 'Guest';
+      }
+      
       const opponentName = isHost ? guestName : hostName;
 
       // Load game state
@@ -144,58 +170,85 @@ export class MultiplayerGameManager {
 
   // Handle room updates from realtime
   private handleRoomUpdate(roomData: any) {
-    // Check if opponent left
-    if (!roomData.guest_user_id && roomData.host_user_id !== this.userId) {
-      this.onOpponentLeft();
-      return;
-    }
+    // Prevent processing our own updates
+    if (this.isProcessingUpdate) return;
+    this.isProcessingUpdate = true;
 
-    // Update FEN if changed
-    if (roomData.current_fen && roomData.current_fen !== this.state.game.fen()) {
-      const newGame = new Chess(roomData.current_fen);
-      this.state.game = newGame;
-      this.state.moveHistory = newGame.history();
+    try {
+      // Check if opponent left
+      if (!roomData.guest_user_id && roomData.host_user_id !== this.userId) {
+        this.onOpponentLeft();
+        return;
+      }
+
+      // Update FEN if changed AND it's not our turn
+      const isMyTurn = (this.state.game.turn() === 'w' && this.state.playerColor === 'white') ||
+                       (this.state.game.turn() === 'b' && this.state.playerColor === 'black');
       
-      // Extract last move (would need to be stored in DB for accuracy)
-      const history = newGame.history({ verbose: true });
-      if (history.length > 0) {
-        const lastMove = history[history.length - 1];
-        this.state.lastMove = { from: lastMove.from, to: lastMove.to };
+      if (roomData.current_fen && 
+          roomData.current_fen !== this.state.game.fen() && 
+          !isMyTurn) {
+        
+        const newGame = new Chess(roomData.current_fen);
+        this.state.game = newGame;
+        this.state.moveHistory = newGame.history();
+        
+        // Extract last move
+        const history = newGame.history({ verbose: true });
+        if (history.length > 0) {
+          const lastMove = history[history.length - 1];
+          this.state.lastMove = { from: lastMove.from, to: lastMove.to };
+        }
+
+        this.onStateChange(this.state);
+        this.checkGameEnd();
+      }
+
+      // Update timers
+      if (roomData.white_time_left !== undefined) {
+        this.state.whiteTime = roomData.white_time_left;
+      }
+      if (roomData.black_time_left !== undefined) {
+        this.state.blackTime = roomData.black_time_left;
+      }
+
+      // Update pause state
+      if (roomData.is_paused !== this.state.isPaused) {
+        this.handlePauseToggle(roomData.is_paused, roomData.paused_by);
+      }
+
+      // Check if game finished - BUT don't trigger if we already triggered it locally
+      if (roomData.status === 'finished' && this.state.game.turn() !== this.state.game.turn()) {
+        this.stopTimer();
+        
+        // Only show notification if we haven't processed it yet
+        // (This prevents duplicate notifications)
+        if (!this.hasGameEnded) {
+          this.hasGameEnded = true;
+          
+          if (roomData.winner_id === this.userId) {
+            const reason = roomData.result === 'timeout' 
+              ? `⏱️ Lawan kehabisan waktu! Kamu Menang` 
+              : `♔ Skakmat! Kamu Menang`;
+            this.onGameEnd(true, reason);
+          } else if (roomData.winner_id) {
+            const reason = roomData.result === 'timeout' 
+              ? `⏱️ Waktu kamu habis! Kamu Kalah` 
+              : `♔ Skakmat! Kamu Kalah`;
+            this.onGameEnd(false, reason);
+          } else {
+            this.onGameEnd(false, '🤝 Permainan Seri (Draw)');
+          }
+        }
       }
 
       this.onStateChange(this.state);
-      this.checkGameEnd();
+    } finally {
+      // Reset flag after a small delay
+      setTimeout(() => {
+        this.isProcessingUpdate = false;
+      }, 100);
     }
-
-    // Update timers
-    if (roomData.white_time_left !== undefined) {
-      this.state.whiteTime = roomData.white_time_left;
-    }
-    if (roomData.black_time_left !== undefined) {
-      this.state.blackTime = roomData.black_time_left;
-    }
-
-    // Update pause state
-    if (roomData.is_paused !== this.state.isPaused) {
-      this.handlePauseToggle(roomData.is_paused, roomData.paused_by);
-    }
-
-    // Check if game finished
-    if (roomData.status === 'finished') {
-      this.stopTimer();
-      
-      if (roomData.winner_id === this.userId) {
-        const reason = roomData.result === 'timeout' ? 'Waktu lawan habis! Kamu Menang' : 'Skakmat! Kamu Menang';
-        this.onGameEnd(true, reason);
-      } else if (roomData.winner_id) {
-        const reason = roomData.result === 'timeout' ? 'Waktu kamu habis! Kamu Kalah' : 'Skakmat! Kamu Kalah';
-        this.onGameEnd(false, reason);
-      } else {
-        this.onGameEnd(false, 'Permainan Seri (Draw)');
-      }
-    }
-
-    this.onStateChange(this.state);
   }
 
   // Player makes move
@@ -208,48 +261,74 @@ export class MultiplayerGameManager {
       return false;
     }
 
+    // Prevent double moves
+    if (this.isProcessingUpdate) {
+      return false;
+    }
+
     // Validate & make move
     try {
       const move = game.move({ from, to, promotion });
       if (!move) return false;
+
+      // Set flag to prevent race condition
+      this.isProcessingUpdate = true;
 
       this.state.moveHistory = game.history();
       this.state.lastMove = { from, to };
       this.onStateChange(this.state);
 
       // Send move to database
-      await supabase.from('game_moves').insert({
+      const moveInsert = {
         room_id: roomId,
         player_id: this.userId,
+        player_color: playerColor,
         from_square: from,
         to_square: to,
-        fen: game.fen(),
+        piece: move.piece,
+        captured_piece: move.captured || null,
+        is_castle: move.flags ? (move.flags.includes('k') || move.flags.includes('q')) : false,
+        is_en_passant: move.flags ? move.flags.includes('e') : false,
+        promotion: move.promotion || null,
+        fen_after: game.fen(),
         san: move.san,
         move_number: game.history().length,
-      });
+      };
 
-      // Update room state
-      const updateData: any = {
+      const { error: moveError } = await supabase.from('game_moves').insert(moveInsert);
+      
+      if (moveError) {
+        console.error('Insert move error:', moveError);
+      }
+
+      // Update room state - Only update FEN and timestamp
+      const updateData = {
         current_fen: game.fen(),
         last_move_at: new Date().toISOString(),
       };
 
-      // Update player's timer
-      if (playerColor === 'white') {
-        updateData.white_time_left = this.state.whiteTime;
-      } else {
-        updateData.black_time_left = this.state.blackTime;
-      }
-
-      await supabase
+      const { error: updateError } = await supabase
         .from('game_rooms')
         .update(updateData)
-        .eq('id', roomId);
+        .eq('id', roomId)
+        .eq('status', 'playing'); // Extra safety check
 
-      this.checkGameEnd();
+      if (updateError) {
+        console.error('Update room error:', updateError);
+      }
+
+      // Check game end BEFORE resetting flag
+      await this.checkGameEnd();
+
+      // Reset flag after delay
+      setTimeout(() => {
+        this.isProcessingUpdate = false;
+      }, 300);
+
       return true;
     } catch (e) {
       console.error('Move error:', e);
+      this.isProcessingUpdate = false;
       return false;
     }
   }
@@ -358,56 +437,152 @@ export class MultiplayerGameManager {
 
   // Handle timeout
   private async handleTimeout(timeoutColor: 'white' | 'black') {
+    // Prevent multiple calls
+    if (this.isProcessingUpdate) return;
+    this.isProcessingUpdate = true;
+    
     this.stopTimer();
 
-    const winnerId = timeoutColor === 'white' 
-      ? (this.state.playerColor === 'black' ? this.userId : null)
-      : (this.state.playerColor === 'white' ? this.userId : null);
+    // Determine winner based on who ran out of time
+    const isWhiteTimeout = timeoutColor === 'white';
+    
+    // If white timeout, black wins (and vice versa)
+    let winnerId: string | null = null;
+    let won = false;
+    
+    if (isWhiteTimeout) {
+      // White ran out of time, black wins
+      winnerId = this.state.playerColor === 'black' ? this.userId : null;
+      won = this.state.playerColor === 'black';
+    } else {
+      // Black ran out of time, white wins
+      winnerId = this.state.playerColor === 'white' ? this.userId : null;
+      won = this.state.playerColor === 'white';
+    }
 
-    await supabase
-      .from('game_rooms')
-      .update({
-        status: 'finished',
-        result: 'timeout',
-        winner_id: winnerId,
-        pgn: this.state.game.pgn(),
-      })
-      .eq('id', this.state.roomId);
+    try {
+      const { error } = await supabase
+        .from('game_rooms')
+        .update({
+          status: 'finished',
+          result: won ? 'win' : 'lose', // Use 'win' or 'lose' not 'timeout'
+          winner_id: winnerId,
+          pgn: this.state.game.pgn(),
+        })
+        .eq('id', this.state.roomId)
+        .eq('status', 'playing');
+
+      if (error) {
+        console.error('Timeout update error:', error);
+      }
+
+      // Trigger game end immediately with dynamic message
+      const opponentColor = this.state.playerColor === 'white' ? 'Black' : 'White';
+      const myColor = this.state.playerColor === 'white' ? 'White' : 'Black';
+      
+      const reason = won 
+        ? `⏱️ ${opponentColor} (${this.state.opponentName}) kehabisan waktu! ${myColor} Menang!` 
+        : `⏱️ ${myColor} kehabisan waktu! ${opponentColor} (${this.state.opponentName}) Menang!`;
+      
+      this.onGameEnd(won, reason);
+    } catch (error) {
+      console.error('Handle timeout error:', error);
+    } finally {
+      setTimeout(() => {
+        this.isProcessingUpdate = false;
+      }, 500);
+    }
   }
 
   // Check game end
   private async checkGameEnd() {
     const { game } = this.state;
 
-    if (game.isCheckmate()) {
-      this.stopTimer();
-      
-      const winnerId = (game.turn() === 'b' && this.state.playerColor === 'white') ||
-                       (game.turn() === 'w' && this.state.playerColor === 'black')
-        ? this.userId
-        : null;
+    // Prevent multiple calls
+    if (this.isProcessingUpdate) return;
 
-      await supabase
-        .from('game_rooms')
-        .update({
-          status: 'finished',
-          result: 'win',
-          winner_id: winnerId,
-          pgn: game.pgn(),
-        })
-        .eq('id', this.state.roomId);
-    } else if (game.isDraw()) {
+    if (game.isCheckmate()) {
+      this.isProcessingUpdate = true;
       this.stopTimer();
       
-      await supabase
-        .from('game_rooms')
-        .update({
-          status: 'finished',
-          result: 'draw',
-          winner_id: null,
-          pgn: game.pgn(),
-        })
-        .eq('id', this.state.roomId);
+      // Determine winner
+      // If it's white's turn and checkmate, white lost (black wins)
+      const isWhiteTurn = game.turn() === 'w';
+      
+      let winnerId: string | null = null;
+      let won = false;
+      
+      if (isWhiteTurn) {
+        // White is checkmated, black wins
+        winnerId = this.state.playerColor === 'black' ? this.userId : null;
+        won = this.state.playerColor === 'black';
+      } else {
+        // Black is checkmated, white wins
+        winnerId = this.state.playerColor === 'white' ? this.userId : null;
+        won = this.state.playerColor === 'white';
+      }
+
+      try {
+        const { error } = await supabase
+          .from('game_rooms')
+          .update({
+            status: 'finished',
+            result: won ? 'win' : 'lose',
+            winner_id: winnerId,
+            pgn: game.pgn(),
+          })
+          .eq('id', this.state.roomId)
+          .eq('status', 'playing');
+
+        if (error) {
+          console.error('Checkmate update error:', error);
+        }
+
+        // Trigger game end immediately with dynamic message
+        const opponentColor = this.state.playerColor === 'white' ? 'Black' : 'White';
+        const myColor = this.state.playerColor === 'white' ? 'White' : 'Black';
+        
+        const reason = won 
+          ? `♔ Skakmat! ${opponentColor} (${this.state.opponentName}) kalah. ${myColor} Menang!` 
+          : `♔ Skakmat! ${myColor} kalah. ${opponentColor} (${this.state.opponentName}) Menang!`;
+        
+        this.onGameEnd(won, reason);
+      } catch (error) {
+        console.error('Check game end error:', error);
+      } finally {
+        setTimeout(() => {
+          this.isProcessingUpdate = false;
+        }, 500);
+      }
+    } else if (game.isDraw()) {
+      this.isProcessingUpdate = true;
+      this.stopTimer();
+      
+      try {
+        const { error } = await supabase
+          .from('game_rooms')
+          .update({
+            status: 'finished',
+            result: 'draw',
+            winner_id: null,
+            pgn: game.pgn(),
+          })
+          .eq('id', this.state.roomId)
+          .eq('status', 'playing');
+
+        if (error) {
+          console.error('Draw update error:', error);
+        }
+
+        // Trigger game end immediately
+        this.onGameEnd(false, '🤝 Permainan Seri (Draw)');
+      } catch (error) {
+        console.error('Check game end error:', error);
+      } finally {
+        setTimeout(() => {
+          this.isProcessingUpdate = false;
+        }, 500);
+      }
     }
   }
 
@@ -425,7 +600,7 @@ export class MultiplayerGameManager {
       .update({
         status: 'finished',
         result: 'abandoned',
-        winner_id: null, // Opponent wins by default
+        winner_id: null,
       })
       .eq('id', this.state.roomId);
   }

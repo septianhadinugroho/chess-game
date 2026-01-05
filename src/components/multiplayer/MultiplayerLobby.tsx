@@ -11,10 +11,16 @@ interface Room {
   id: string;
   room_code: string;
   host_user_id: string;
+  guest_user_id: string | null;
   status: string;
   time_control: number;
   created_at: string;
   host_color: string;
+  white_time_left: number;
+  black_time_left: number;
+  current_fen: string;
+  is_paused: boolean;
+  paused_by: string | null;
 }
 
 interface MultiplayerLobbyProps {
@@ -35,7 +41,7 @@ export default function MultiplayerLobby({
   const [activeTab, setActiveTab] = useState<'create' | 'join'>('create');
   
   // Create Room State
-  const [timeControl, setTimeControl] = useState(60); // Default 1 menit per jalan
+  const [timeControl, setTimeControl] = useState(60);
   const [selectedColor, setSelectedColor] = useState<'white' | 'black' | 'random'>('random');
   const [loading, setLoading] = useState(false);
   
@@ -48,7 +54,7 @@ export default function MultiplayerLobby({
   const [copied, setCopied] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
-  // FIXED: Time Presets PER MOVE (bukan total game)
+  // FIXED: Time Presets PER MOVE
   const timePresets = [
     { value: 10, label: '10s' },
     { value: 30, label: '30s' },
@@ -76,8 +82,12 @@ export default function MultiplayerLobby({
       }, (payload) => {
         const updatedRoom = payload.new as Room;
         
-        if (updatedRoom.status === 'playing') {
-          onJoinRoom(updatedRoom.id, updatedRoom.room_code);
+        // When guest joins and status becomes 'playing'
+        if (updatedRoom.status === 'playing' && updatedRoom.guest_user_id) {
+          // Give a small delay to ensure both players are synced
+          setTimeout(() => {
+            onJoinRoom(updatedRoom.id, updatedRoom.room_code);
+          }, 500);
         }
       })
       .subscribe();
@@ -138,7 +148,6 @@ export default function MultiplayerLobby({
     }
   };
 
-  // FIXED: Delete room properly
   const deleteRoom = async () => {
     if (!createdRoom) return;
     
@@ -184,30 +193,42 @@ export default function MultiplayerLobby({
 
       if (fetchError || !roomData) {
         alert(language === 'id' ? 'Room tidak ditemukan!' : 'Room not found!');
+        setLoading(false);
         return;
       }
 
       if (roomData.host_user_id === userId) {
         alert(language === 'id' ? 'Ini room kamu sendiri' : 'This is your own room');
+        setLoading(false);
         return;
       }
 
+      // Update room to add guest and change status to 'playing'
       const { error: updateError } = await supabase
         .from('game_rooms')
         .update({ 
           guest_user_id: userId,
           status: 'playing'
         })
-        .eq('id', roomData.id);
+        .eq('id', roomData.id)
+        .eq('status', 'waiting');
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        console.error('Update error:', updateError);
+        alert('Failed to join room.');
+        setLoading(false);
+        return;
+      }
 
-      onJoinRoom(roomData.id, code.toUpperCase());
+      // Small delay to let host receive the update
+      setTimeout(() => {
+        onJoinRoom(roomData.id, code.toUpperCase());
+        setLoading(false);
+      }, 300);
 
     } catch (error) {
       console.error('Error joining room:', error);
       alert('Failed to join room.');
-    } finally {
       setLoading(false);
     }
   };
@@ -481,7 +502,6 @@ export default function MultiplayerLobby({
                 {language === 'id' ? 'Masukkan Kode Room' : 'Enter Room Code'}
               </h3>
 
-              {/* FIXED: Mobile Friendly Input */}
               <div className="space-y-3">
                 <input
                   type="text"
