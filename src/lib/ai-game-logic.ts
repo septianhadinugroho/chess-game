@@ -157,29 +157,39 @@ export class AIGameManager {
     if (this.state.game.isGameOver()) return;
 
     this.state.isThinking = true;
-    this.onStateChange(this.state);
+    this.onStateChange({ ...this.state }); // Pastikan UI tahu AI sedang mikir
 
     setTimeout(() => {
-      const { game, currentLevel, playerColor } = this.state;
-      
-      // Get AI difficulty
-      const aiDepth = Math.min(Math.max(1, currentLevel), 5);
-      const isAIWhite = playerColor === 'black';
-      
-      const bestMove = this.engine.getBestMove(game, aiDepth, isAIWhite);
-      
-      if (bestMove) {
+        const { game, currentLevel, playerColor } = this.state;
+        
+        const aiDepth = Math.min(Math.max(1, currentLevel), 5);
+        const isAIWhite = playerColor === 'black';
+        
+        const bestMove = this.engine.getBestMove(game, aiDepth, isAIWhite);
+        
+        if (bestMove) {
+        // 1. Lakukan move pada objek yang sudah ada agar history tersimpan
         game.move(bestMove);
         
-        this.state.moveHistory = game.history();
-        this.state.lastMove = { from: bestMove.from, to: bestMove.to };
-        this.state.isThinking = false;
+        // 2. PERBAIKAN UTAMA: 
+        // Alih-alih membuat 'new Chess(fen)', kita buat kloning PGN-nya
+        // Agar semua riwayat langkah dari awal permainan ikut terbawa
+        const updatedGame = new Chess();
+        updatedGame.loadPgn(game.pgn()); 
+
+        this.state = {
+            ...this.state,
+            game: updatedGame, // Sekarang game punya history lengkap
+            moveHistory: updatedGame.history(), // History tidak akan kosong
+            lastMove: { from: bestMove.from, to: bestMove.to },
+            isThinking: false,
+        };
         
-        this.onStateChange(this.state);
+        this.onStateChange({ ...this.state });
         this.checkGameEnd();
-      }
+        }
     }, 500);
-  }
+}
 
   // Undo last 2 moves (player + AI)
   undoMove(): boolean {

@@ -109,3 +109,12 @@ export const WS_CONFIG = {
   RETRY_DELAY: 2000, // ms
   HEARTBEAT_INTERVAL: 30000, // ms
 } as const;
+
+export const MULTIPLAYER_CONFIG = {
+  IS_MAINTENANCE: true,
+  MIN_VERSION: '1.0.0',
+  MAINTENANCE_MESSAGE: {
+    id: "Fitur Multiplayer sedang dalam pengembangan. Main lawan AI dulu yuk!",
+    en: "Multiplayer is under development. Try playing against AI for now!"
+  }
+};

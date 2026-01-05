@@ -61,7 +61,7 @@ export default function AIGameScreen({
 
     const manager = new AIGameManager(
       userId,
-      (state) => setGameState(state),
+      (state) => setGameState({ ...state }),
       (won, reason) => {
         setGameStatus(reason);
         playSound(won ? 'win' : 'lose');
